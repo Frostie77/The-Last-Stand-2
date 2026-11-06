@@ -67,7 +67,9 @@ public class GamepadRoutingTest {
         web=new RecordingWebView(); setField("webView",web);
         root.addView(web,new FrameLayout.LayoutParams(-1,-1));
         invoke("addAimController"); invoke("addFrontend");
-        root.layout(0,0,1000,600); web.layout(0,0,1000,600);
+        root.measure(View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(600,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,1000,600);
         menu=(Button)field("menuButton"); menu.setFocusableInTouchMode(true);
         assertTrue(menu.requestFocus()); assertTrue(menu.hasFocus());
         scripts.clear(); focusAtDelivery.clear();
