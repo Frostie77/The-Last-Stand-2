@@ -56,6 +56,12 @@ jobs:
           cp -R /tmp/tls2-ruffle/package/. app/src/main/assets/www/ruffle/
       - name: Build and test Android host and shared frontend
         run: gradle --no-daemon :frostfrontend:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+      - name: Verify particle behavior and controller recovery in pinned Ruffle
+        run: |
+          npm install --prefix /tmp/tls2-engine --no-save --package-lock=false playwright@1.62.1
+          /tmp/tls2-engine/node_modules/.bin/playwright install --with-deps chromium --only-shell
+          NODE_PATH=/tmp/tls2-engine/node_modules node tests/test_particles.cjs
+          NODE_PATH=/tmp/tls2-engine/node_modules node tests/test_ruffle_recovery.cjs
       - name: Verify identity and game-free APK
         run: |
           python3 - <<'PY'
