@@ -69,11 +69,9 @@ final class AimController {
             lastTime = now;
             float response = Math.min(1f, (magnitude - deadzone) / (1f - deadzone));
             float pixels = Math.min(viewport.getWidth(), viewport.getHeight()) * speed * response * dt;
-            float previousX = x, previousY = y;
             x += axisX / magnitude * pixels / Math.max(1, viewport.getWidth()) * (invertX ? -1 : 1);
             y += axisY / magnitude * pixels / Math.max(1, viewport.getHeight()) * (invertY ? -1 : 1);
-            setPosition(x, y);
-            if (x != previousX || y != previousY) input.aim(x, y);
+            setPosition(x, y); input.aim(x, y);
             handler.postDelayed(this, 16);
         }
     };

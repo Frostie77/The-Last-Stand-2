@@ -16,7 +16,7 @@ Run that optional engine check with `node tests/test_ruffle_recovery.cjs` after 
 
 The Odin tester reports improved controls with the focus recovery, but heavy stutter remains. The next performance changes default antialiasing to Off (Ruffle quality `low`) instead of the previous 4× (`high`), keeping the same render resolution. The optional runtime test also accepts `TLS2_QUALITY=high` to check both configurations and records WebGL multisample allocations. This verifies rendering configuration and input behavior, not an Odin frame-rate improvement.
 
-Native aiming now permits only one movement evaluation in flight, retaining the latest pending position while WebView is busy. Button edges flush that latest position before delivery; presses/releases are never coalesced. Touch down/up/cancel remain ordered, and pause clears pending movement. Activity tests simulate a blocked renderer with 90 aim updates and verify the bounded delivery, latest position, button ordering and pause cleanup. The aim ticker also suppresses unchanged positions when held against a screen edge.
+Native aiming now permits only one movement evaluation in flight, retaining the latest pending position while WebView is busy. Button edges flush that latest position before delivery; presses/releases are never coalesced. Touch down/up/cancel remain ordered, and pause clears pending movement. Activity tests simulate a blocked renderer with 90 aim updates and verify the bounded delivery, latest position, button ordering and pause cleanup. The existing cursor ticker and motion calculation are unchanged.
 
 ## Odin checks before release
 
