@@ -97,13 +97,15 @@ try {
             throw 'Open The Last Stand 2 on the Odin and leave it on the encounter where gamepad input fails.'
         }
         $tls2DebugName = "webview_devtools_remote_$tls2ProcessId"
-        $tls2UnixSockets = (& $tls2Adb shell cat /proc/net/unix) -join "`n"
-        if ($tls2UnixSockets -notmatch ("@" + [regex]::Escape($tls2DebugName) + '(?:\s|$)')) {
-            throw 'The installed WebView does not expose the Debug app for inspection. Paste this message.'
-        }
+        # Android builds can hide socket names in /proc/net/unix. Connect to
+        # this app's known endpoint instead of treating that listing as proof.
         $tls2ForwardPort = ((& $tls2Adb forward tcp:0 "localabstract:$tls2DebugName") -join '').Trim()
         if ($LASTEXITCODE -ne 0 -or $tls2ForwardPort -notmatch '^\d+$') { throw 'ADB forwarding failed.' }
-        $tls2Pages = Invoke-RestMethod -Uri "http://127.0.0.1:$tls2ForwardPort/json/list" -TimeoutSec 5
+        try {
+            $tls2Pages = Invoke-RestMethod -Uri "http://127.0.0.1:$tls2ForwardPort/json/list" -TimeoutSec 5
+        } catch {
+            throw 'The game WebView could not be reached. Install the updated Debug APK, reopen the imported game, then run this capture again.'
+        }
         $tls2Page = $tls2Pages | Where-Object {
             $_.url -eq 'https://appassets.androidplatform.net/assets/www/index.html'
         } | Select-Object -First 1

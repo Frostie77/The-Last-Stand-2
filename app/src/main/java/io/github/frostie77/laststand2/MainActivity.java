@@ -176,6 +176,8 @@ public final class MainActivity extends Activity {
         }
         root.removeAllViews();
         if (webView != null) { webView.destroy(); webView = null; }
+        WebView.setWebContentsDebuggingEnabled(
+            (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0);
         webView = new WebView(this);
         webView.setBackgroundColor(Color.BLACK);
         webView.setFocusable(true);
