@@ -144,11 +144,26 @@ $tls2InstallProbe = @'
   window.__tls2InputCapture?.restore();
   if (typeof tls2Ready === 'undefined' || !tls2Ready) throw Error('Wait until the imported game is loaded.');
   const p = document.querySelector('ruffle-player'), c = canvasForPointer();
+  const flash = () => {
+    if (typeof p.tls2GameInputState !== 'function') return {available:false};
+    const names=['weapon','ammo','reloading','reloadAnimation','pumping','firing','gamePaused','rootFrame',
+      'gunFrame','gunAngle','mouseX','mouseY','combatHandler','movementHandler','reloadKeyDown'];
+    const values=String(p.tls2GameInputState()).split('|');
+    return Object.fromEntries(names.map((name,index)=>{
+      const value=values[index];
+      return [name,value==='true'?true:value==='false'?false:value!==''&&Number.isFinite(Number(value))?Number(value):value];
+    }));
+  };
+  const native = () => {
+    try { return window.LastStand2Host?.inputState ? JSON.parse(window.LastStand2Host.inputState()) : null; }
+    catch (_) { return null; }
+  };
   const state = () => ({phase:tls2Phase, paused:[tls2MenuPaused,tls2BackgroundPaused],
     focus:document.hasFocus(), active:document.activeElement?.tagName,
+    flash:flash(),native:native(),
     held:Object.fromEntries(Object.entries(sources).filter(([,v])=>v.size).map(([k,v])=>[k,[...v]]))});
   const d = {before:state(), keys:[], aimCalls:0, events:{}, started:performance.now(),
-    oldKey:window.tls2Key, oldAim:window.tls2Aim, listeners:[]};
+    oldKey:window.tls2Key, oldAim:window.tls2Aim, listeners:[], samples:[]};
   d.key = function(id, down, source) {
     const mapped = id === 'select' ? 'fire' : id;
     const before = sources[mapped]?.size || 0;
@@ -167,14 +182,17 @@ $tls2InstallProbe = @'
     }
   }
   d.report = () => ({before:d.before,after:state(),keyCalls:d.keys,aimCalls:d.aimCalls,
-    lastAim:d.lastAim,deliveredEvents:d.events});
+    lastAim:d.lastAim,deliveredEvents:d.events,stateSamples:d.samples});
   d.restore = () => {
+    clearInterval(d.interval);
     if (window.tls2Key === d.key) window.tls2Key=d.oldKey;
     if (window.tls2Aim === d.aim) window.tls2Aim=d.oldAim;
     for (const [target,type,f] of d.listeners) target.removeEventListener(type,f);
     delete window.__tls2InputCapture;
   };
   window.__tls2InputCapture=d; window.tls2Key=d.key; window.tls2Aim=d.aim;
+  d.interval=setInterval(()=>{d.samples.push({ms:Math.round(performance.now()-d.started),flash:flash(),native:native()});
+    if(d.samples.length>60)d.samples.shift();},500);
   return d.before;
 })()
 '@

@@ -34,12 +34,16 @@ jobs:
         run: |
           $tokens = $null
           $parseErrors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile("$pwd/capture-controller-input.ps1", [ref]$tokens, [ref]$parseErrors) | Out-Null
-          if ($parseErrors) { throw ($parseErrors | Out-String) }
+          foreach ($file in @('capture-controller-input.ps1','test-reload.ps1')) {
+            [System.Management.Automation.Language.Parser]::ParseFile("$pwd/$file", [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors) { throw ($parseErrors | Out-String) }
+          }
       - name: Verify pointer, keyboard ownership and lifecycle
         run: node tests/test_input.cjs
       - name: Verify temporary performance probe
         run: node tests/test_performance_probe.cjs
+      - name: Verify reload state capture and cleanup
+        run: node tests/test_capture_probe.cjs
       - name: Verify stable updater
         run: python3 tests/test_updates.py
       - name: Install Android 35
@@ -61,6 +65,7 @@ jobs:
           npm install --prefix /tmp/tls2-engine --no-save --package-lock=false playwright@1.62.1
           /tmp/tls2-engine/node_modules/.bin/playwright install --with-deps chromium --only-shell
           NODE_PATH=/tmp/tls2-engine/node_modules node tests/test_particles.cjs
+          NODE_PATH=/tmp/tls2-engine/node_modules node tests/test_loops.cjs
           NODE_PATH=/tmp/tls2-engine/node_modules node tests/test_ruffle_recovery.cjs
       - name: Verify identity and game-free APK
         run: |

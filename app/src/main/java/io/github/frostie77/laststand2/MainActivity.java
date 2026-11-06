@@ -69,7 +69,8 @@ public final class MainActivity extends Activity {
     private String updateLatestText = "Not checked";
     private String updateReleaseUrl;
     private AimController aimController;
-    private boolean aimInFlight, aimPending;
+    private volatile boolean aimInFlight, aimPending;
+    private volatile long aimStartedAt;
     private float pendingAimX, pendingAimY;
     private int aimGeneration;
     private static final FrostControlProfile CONTROL_PROFILE = FrostControlProfile.of("the-last-stand-2",
@@ -195,6 +196,11 @@ public final class MainActivity extends Activity {
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         webView.addJavascriptInterface(new Object() {
+            @android.webkit.JavascriptInterface public String inputState() {
+                long waiting=aimInFlight ? Math.max(0,android.os.SystemClock.uptimeMillis()-aimStartedAt) : 0;
+                return "{\"aimInFlight\":"+aimInFlight+",\"aimPending\":"+aimPending+
+                    ",\"aimWaitingMs\":"+waiting+"}";
+            }
             @android.webkit.JavascriptInterface public void reportPhase(String phase) {
                 if (!"combat".equals(phase) && !"menu".equals(phase)) return;
                 runOnUiThread(() -> {
@@ -855,6 +861,7 @@ public final class MainActivity extends Activity {
         int generation = aimGeneration;
         String script = takePendingAim();
         aimInFlight = true;
+        aimStartedAt = android.os.SystemClock.uptimeMillis();
         target.evaluateJavascript(script, ignored -> {
             if (target != webView || generation != aimGeneration) return;
             aimInFlight = false;

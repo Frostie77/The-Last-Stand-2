@@ -64,7 +64,8 @@ public class ParticleFixtureCode {
         source = work / 'ParticleFixtureCode.java'
         source.write_text(driver)
         subprocess.run(['java', '-m', 'jdk.compiler/com.sun.tools.javac.Main', '-d', str(work), str(source),
-                        str(ROOT / 'app/src/main/java/io/github/frostie77/laststand2/LastStand2SceneMarker.java')], check=True)
+                        str(ROOT / 'app/src/main/java/io/github/frostie77/laststand2/LastStand2SceneMarker.java'),
+                        str(ROOT / 'app/src/main/java/io/github/frostie77/laststand2/LastStand2LoopOptimizer.java')], check=True)
         binary = work / 'particle.bin'
         subprocess.run(['java', '-cp', str(work), 'io.github.frostie77.laststand2.ParticleFixtureCode', str(binary)], check=True)
         data = binary.read_bytes()

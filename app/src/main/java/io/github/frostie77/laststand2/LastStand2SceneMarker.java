@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
-/** Host scene notifications and particle fast path for the tested v1.31 SWF only. */
+/** In-memory input diagnostics, scene notifications and combat fast paths for tested v1.31. */
 final class LastStand2SceneMarker {
     private static final String TESTED_SHA256 =
         "db326f3ce2f331d3320cd442c88f17152198a5da4cca3d0fb9c1509afb430ea6";
@@ -34,7 +34,7 @@ final class LastStand2SceneMarker {
             int pos = 8 + (5 + 4 * ((movie[8] & 255) >>> 3) + 7) / 8 + 4;
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             out.write(movie, 0, pos);
-            int hooks = 0, particles = 0;
+            int hooks = 0, particles = 0, loops = 0, diagnostics = 0;
             while (pos + 2 <= movie.length) {
                 int start = pos, header = ushort(movie, pos);
                 pos += 2;
@@ -82,6 +82,14 @@ final class LastStand2SceneMarker {
                             } else if ("moveParticle".equals(name)) {
                                 actions.write(particleFunction(pool));
                                 particles++;
+                            } else if (LastStand2LoopOptimizer.supports(name)) {
+                                actions.write(LastStand2LoopOptimizer.rewrite(name,movie,actionStart,
+                                    recordEnd,functionEnd,pool));
+                                loops++;
+                            } else if ("reloadMagazine".equals(name)) {
+                                actions.write(movie,actionStart,functionEnd-actionStart);
+                                actions.write(inputStateCallback());
+                                diagnostics++;
                             } else actions.write(movie, actionStart, functionEnd - actionStart);
                             at = functionEnd;
                         } else {
@@ -99,7 +107,7 @@ final class LastStand2SceneMarker {
                 pos += size;
                 if (tag == 0) break;
             }
-            if (hooks != 2 || particles != 1) return original;
+            if (hooks != 2 || particles != 1 || loops != 3 || diagnostics != 1) return original;
             byte[] patched = out.toByteArray();
             for (int i = 0; i < 4; i++) patched[4 + i] = (byte)(patched.length >>> (8 * i));
             ByteArrayOutputStream compressed = new ByteArrayOutputStream();
@@ -111,6 +119,45 @@ final class LastStand2SceneMarker {
         } catch (Exception error) {
             return original; // Unknown/unsupported copies retain working Direct touch input.
         }
+    }
+
+    // Invoked only by the desktop recorder, never by the gameplay loop.
+    private static byte[] inputStateCallback() throws IOException {
+        ByteArrayOutputStream body=new ByteArrayOutputStream();
+        String[] fields={"currentWeapon","ammoInMag","reloading","reloadAnimPlaying","pumping",
+            "firing","gamePaused","_currentframe","mainGunRef._currentframe","mainGunRef._rotation",
+            "_xmouse","_ymouse"};
+        for(int i=0;i<fields.length;i++) {
+            if(i>0) { literal(body,"|");body.write(0x21); }
+            rootPath(body,fields[i]); if(i>0) body.write(0x21);
+        }
+        for(String path:new String[]{"game.onEnterFrame","mainChar.onEnterFrame"}) {
+            literal(body,"|");body.write(0x21);rootPath(body,path);body.write(0x44);body.write(0x21);
+        }
+        literal(body,"|");body.write(0x21);
+        integer(body,82);integer(body,1);literal(body,"Key");body.write(0x1c);
+        literal(body,"isDown");body.write(0x52);body.write(0x21);body.write(0x3e);body.write(0);
+        String internal="__tls2GameInputState";
+        ByteArrayOutputStream header=new ByteArrayOutputStream();
+        header.write((internal+"\0").getBytes(StandardCharsets.US_ASCII));word(header,0);word(header,body.size());
+        ByteArrayOutputStream out=new ByteArrayOutputStream();
+        out.write(0x9b);word(out,header.size());header.writeTo(out);body.writeTo(out);
+        literal(out,internal);out.write(0x1c);literal(out,"_root");out.write(0x1c);
+        literal(out,"tls2GameInputState");integer(out,3);
+        literal(out,"flash");out.write(0x1c);literal(out,"external");out.write(0x4e);
+        literal(out,"ExternalInterface");out.write(0x4e);literal(out,"addCallback");out.write(0x52);out.write(0x17);
+        return out.toByteArray();
+    }
+    private static void rootPath(ByteArrayOutputStream out,String path) throws IOException {
+        literal(out,"_root");out.write(0x1c);
+        for(String member:path.split("\\.")) { literal(out,member);out.write(0x4e); }
+    }
+    private static void literal(ByteArrayOutputStream out,String text) throws IOException {
+        byte[] bytes=text.getBytes(StandardCharsets.US_ASCII);
+        out.write(0x96);word(out,bytes.length+2);out.write(0);out.write(bytes);out.write(0);
+    }
+    private static void integer(ByteArrayOutputStream out,int value) {
+        out.write(0x96);word(out,5);out.write(7);dword(out,value);
     }
 
     // The original per-particle callback uses `with(this)` and repeatedly

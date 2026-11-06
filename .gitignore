@@ -1,6 +1,7 @@
 .gradle/
 .bootstrap/
 .diagnostics/
+__pycache__/
 local.properties
 .idea/
 *.iml
