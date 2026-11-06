@@ -20,6 +20,10 @@ Native aiming now permits only one movement evaluation in flight, retaining the 
 
 ## Odin checks before release
 
+The tester still reports heavy stutter with running zombies and heavy shooting after the rendering/queue changes. No additional performance fix is claimed. With the installed Debug game open in the affected encounter, run `powershell -NoProfile -ExecutionPolicy Bypass -File .\capture-controller-input.ps1 -Performance`. The 12-second capture records page animation-frame gaps, long tasks, synchronous aim/key costs, canvas/configuration/renderer information, CDP main-thread duration metrics and a sampled CPU profile. Page frame intervals are not the Flash game's actual simulation frame rate, and self-sample percentages are not GPU utilization. Profiling itself adds overhead. The script restores temporary input wrappers, observers and profiling on completion or error; it does not reload the game or change its settings or saves. Paste the summary; full `.cpuprofile` and summary files are retained in ignored `.diagnostics/` for deeper analysis.
+
+Set `TLS2_PROFILE=1` when running the optional Ruffle engine check to verify the real Chromium profiler/metrics and temporary probe against the independent fixture. Windows CI exercises the production PowerShell transport, CPU summary, large fragmented profile responses, saved files and cleanup after a simulated profiler error.
+
 1. First launch, import, menu cursor/taps and starting a new game.
 2. Movement on stick, D-pad, hat axes and touch pad; aiming while moving; held R2 fire; tap fire; reload and switch weapons.
 3. Right-stick aim speed, independent inversion/deadzone settings, menu cursor accuracy and original/stretch alignment.

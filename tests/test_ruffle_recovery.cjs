@@ -51,6 +51,21 @@ const quality=process.env.TLS2_QUALITY||'low';
   console.log(JSON.stringify({mode,afterTransition:{before,held,after}}));
   if(mode==='old'){assert.equal(held[2],false);assert.equal(held[0],before[0]);assert.equal(after[1],before[1]);console.log('PASS: original bridge reproduces dropped keyboard and fire inputs in actual Ruffle.');}
   else{assert.equal(held[2],true);assert.ok(held[0]>before[0]);assert.equal(after[1],before[1]+1);console.log('PASS: keyboard polling, frame movement and onPress firing recover in actual pinned Ruffle.');}
+  if(process.env.TLS2_PROFILE==='1') {
+   const cdp=await page.context().newCDPSession(page);
+   await page.evaluate(fs.readFileSync(path.join(root,'tools/performance-probe.js'),'utf8'));
+   await cdp.send('Performance.enable');await cdp.send('Profiler.enable');
+   await cdp.send('Profiler.setSamplingInterval',{interval:2000});await cdp.send('Profiler.start');
+   await key('down',true,'stick');await page.waitForTimeout(1200);await key('down',false,'stick');
+   const {profile}=await cdp.send('Profiler.stop'),metrics=await cdp.send('Performance.getMetrics');
+   const report=await page.evaluate(()=>window.__tls2PerformanceCapture.finish());
+   assert.ok(profile.samples.length>0);assert.ok(metrics.metrics.some(m=>m.name==='TaskDuration'));
+   assert.ok(report.pageFrameIntervals.count>0);assert.equal(report.key.calls,2);
+   assert.equal(await page.evaluate(()=>!!window.__tls2PerformanceCapture),false);
+   console.log(JSON.stringify({cpuSamples:profile.samples.length,wasmSymbols:profile.nodes.filter(n=>n.callFrame.url.startsWith('wasm:')).slice(0,4).map(n=>n.callFrame.functionName),page:report}));
+   await cdp.send('Profiler.disable');await cdp.send('Performance.disable');await cdp.detach();
+   console.log('PASS: actual Chromium CPU profiler, metrics and temporary probe with pinned Ruffle.');
+  }
  }catch(e){console.error(JSON.stringify({mode,error:e.message,logs:logs.slice(-12)}));const dir=path.join(root,'.bootstrap');fs.mkdirSync(dir,{recursive:true});await page.screenshot({path:path.join(dir,'recovery-'+mode+'-failure.png')});throw e;}
  finally{await browser.close();fs.rmSync(temporary,{recursive:true,force:true})}
 })().catch(e=>{console.error(e);process.exit(1)});

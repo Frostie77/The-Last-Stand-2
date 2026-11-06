@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Exercise Windows PowerShell input capture
+      - name: Exercise Windows PowerShell input and performance capture
         shell: pwsh
         run: python tests/test_capture_transport.py --powershell powershell.exe
   android:
@@ -38,6 +38,8 @@ jobs:
           if ($parseErrors) { throw ($parseErrors | Out-String) }
       - name: Verify pointer, keyboard ownership and lifecycle
         run: node tests/test_input.cjs
+      - name: Verify temporary performance probe
+        run: node tests/test_performance_probe.cjs
       - name: Verify stable updater
         run: python3 tests/test_updates.py
       - name: Install Android 35
