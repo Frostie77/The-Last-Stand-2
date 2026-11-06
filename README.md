@@ -31,13 +31,13 @@ The Armor Games website-specific copy has a site lock when loaded by this Androi
 
 Controller actions are remappable in FrostFrontend. Movement and aim have independent deadzones and inversion settings; cursor speed is adjustable.
 
-Touch controls provide a joystick or D-pad, Reload and Switch buttons. Touch and drag anywhere outside those controls to aim and fire, or tap to operate game menus. Movement, aiming and buttons can be used simultaneously.
+Touch controls provide a joystick or D-pad, Reload and Switch buttons. **Touch Settings → Touch Aiming** defaults to **Relative**, like Arcane: touch and hold to fire at the existing crosshair, then swipe to move it. Lifting and touching again keeps the aim position. **Direct** aims at the finger instead. Game menus automatically use direct taps with the tested v1.31 SWF. Touch aim speed is adjustable, and movement, aiming and buttons work simultaneously.
 
 Open **Touch Settings → Edit Touch Layout** to move the pad and each button. **Save** persists the layout; **Cancel** discards changes. **Reset**, followed by Save, restores defaults. The game stays paused while editing. Size, opacity, side swapping and layout presets are available. Auto mode follows the last input used, including on handhelds with integrated gamepads.
 
 ## Settings and updates
 
-FrostFrontend includes Original (800×420) or Stretch to Screen display, a stereo speaker test, controller mapping, touch settings and update checks. Game execution and sound pause when settings are open or the app is in the background.
+FrostFrontend includes Original (800×420) or Stretch to Screen display, a stereo speaker test, controller mapping, touch settings and update checks. **Graphics → Render Resolution** defaults to **800×420** to reduce rendering load during crowded fights; **1600×840** and **Device** are available. Resolution changes apply without restarting the game. Game execution and sound pause when settings are open or the app is in the background.
 
 Development build: **0.1.0-dev**, package `io.github.frostie77.laststand2`. There is no signed public release yet. The stable feed remains inactive until a signed APK has been tested and published. A temporary launcher icon is used during development.
 

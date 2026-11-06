@@ -167,6 +167,13 @@ public final class MainActivity extends Activity {
     }
 
     private void startGame() {
+        final byte[] gameBytes;
+        try (FileInputStream in = new FileInputStream(gameFile())) {
+            gameBytes = LastStand2SceneMarker.patch(in);
+        } catch (IOException error) {
+            showError("Unable to load game: " + error.getMessage());
+            return;
+        }
         root.removeAllViews();
         if (webView != null) { webView.destroy(); webView = null; }
         webView = new WebView(this);
@@ -180,18 +187,21 @@ public final class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        webView.addJavascriptInterface(new Object() {
+            @android.webkit.JavascriptInterface public void reportPhase(String phase) {
+                if (!"combat".equals(phase) && !"menu".equals(phase)) return;
+                runOnUiThread(() -> {
+                    if (touchControls != null) touchControls.setCombat("combat".equals(phase));
+                });
+            }
+        }, "LastStand2Host");
 
         WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
             .addPathHandler("/game/", path -> {
                 if (!SWF_NAME.equals(path.startsWith("/") ? path.substring(1) : path)) return null;
-                try {
-                    return new WebResourceResponse("application/x-shockwave-flash", null,
-                        new FileInputStream(gameFile()));
-                } catch (IOException e) {
-                    Log.w("LastStand2Ruffle", "Imported SWF unavailable", e);
-                    return null;
-                }
+                return new WebResourceResponse("application/x-shockwave-flash", null,
+                    new java.io.ByteArrayInputStream(gameBytes));
             }).build();
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView view, String url) {
@@ -221,7 +231,10 @@ public final class MainActivity extends Activity {
         });
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
         aimController = new AimController(webView, new AimController.Input() {
-            @Override public void aim(float x, float y) { jsAim(x, y); }
+            @Override public void aim(float x, float y) {
+                if (touchControls != null) touchControls.setAimPosition(x, y);
+                jsAim(x, y);
+            }
             @Override public void button(int code, boolean down, String source) {
                 String key = keyFor(code);
                 if (key != null) jsKey(key, down, source);
@@ -268,6 +281,8 @@ public final class MainActivity extends Activity {
             String mode = preferences.getString("display_mode", "original");
             webView.evaluateJavascript("window.tls2SetDisplayMode && window.tls2SetDisplayMode('" +
                 ("stretch".equals(mode) ? "stretch" : "original") + "')", null);
+            webView.evaluateJavascript("window.tls2SetRenderResolution && window.tls2SetRenderResolution(" +
+                Math.max(0, Math.min(2, preferences.getInt("render_resolution", 0))) + ")", null);
         }
     }
 
@@ -331,10 +346,14 @@ public final class MainActivity extends Activity {
             @Override public List<FrostFrontendView.Item> itemsForTab(String tabId) {
                 switch (tabId) {
                     case "graphics":
-                        return Collections.singletonList(item("display", "Display Mode",
+                        return Arrays.asList(item("display", "Display Mode",
                             "stretch".equals(preferences.getString("display_mode", "original"))
                                 ? "Stretch to Screen" : "Original (800×420)",
-                            "Original keeps correct proportions; Stretch fills the display"));
+                            "Original keeps correct proportions; Stretch fills the display"),
+                            item("render_resolution", "Render Resolution",
+                                new String[]{"800×420", "1600×840", "Device"}[Math.max(0,
+                                    Math.min(2, preferences.getInt("render_resolution", 0)))],
+                                "Lower resolutions reduce rendering load; changes apply immediately"));
                     case "sound":
                         return Collections.singletonList(item("speaker_test",
                             "Speaker Test: Left → Right → Both", "",
@@ -398,6 +417,12 @@ public final class MainActivity extends Activity {
                                     Math.min(2, preferences.getInt("touch_opacity", 1)))], ""),
                             item("touch_pad", "Movement Pad",
                                 preferences.getInt("touch_pad", 0) == 0 ? "Joystick" : "D-pad", ""),
+                            item("touch_aim", "Touch Aiming",
+                                preferences.getBoolean("touch_relative_aim", true) ? "Relative" : "Direct",
+                                "Relative: swipe to aim, hold to fire; menus use direct taps"),
+                            item("touch_aim_speed", "Touch Aim Speed",
+                                new String[]{"Slow", "Normal", "Fast"}[Math.max(0,
+                                    Math.min(2, preferences.getInt("touch_aim_speed", 1)))], ""),
                             item("touch_sides", "Control Sides",
                                 preferences.getBoolean("touch_sides", false) ? "Swapped" : "Standard", ""),
                             item("touch_position", "Control Position",
@@ -431,7 +456,7 @@ public final class MainActivity extends Activity {
             }
 
             @Override public void onItemAdjusted(String tabId, String itemId, int direction) {
-                if (itemId.equals("display") || itemId.equals("automatic") ||
+                if (itemId.equals("display") || itemId.equals("render_resolution") || itemId.equals("automatic") ||
                     itemId.equals("directions") ||
                     itemId.equals("deadzone") || itemId.startsWith("aim_") || itemId.startsWith("invert_") ||
                     itemId.startsWith("touch_") && !itemId.equals("touch_reset"))
@@ -469,6 +494,12 @@ public final class MainActivity extends Activity {
             String next = "stretch".equals(preferences.getString("display_mode", "original"))
                 ? "original" : "stretch";
             preferences.edit().putString("display_mode", next).apply();
+            applyDisplayMode();
+            updateTouchControls();
+            return;
+        }
+        if ("render_resolution".equals(id)) {
+            cycle(id, 3, direction);
             applyDisplayMode();
             return;
         }
@@ -540,6 +571,13 @@ public final class MainActivity extends Activity {
             int v = preferences.getInt(id, 1);
             preferences.edit().putInt(id, (v + direction + 3) % 3).apply();
         } else if ("touch_pad".equals(id)) cycle(id, 2, direction);
+        else if ("touch_aim".equals(id))
+            preferences.edit().putBoolean("touch_relative_aim",
+                !preferences.getBoolean("touch_relative_aim", true)).apply();
+        else if ("touch_aim_speed".equals(id)) {
+            int v = preferences.getInt(id, 1);
+            preferences.edit().putInt(id, (v + direction + 3) % 3).apply();
+        }
         else if ("touch_position".equals(id)) {
             int v = preferences.getInt(id, 1);
             preferences.edit().putInt(id, (v + direction + 3) % 3).apply();
@@ -547,7 +585,8 @@ public final class MainActivity extends Activity {
         } else if ("touch_reset".equals(id)) {
             preferences.edit().putInt("touch_mode", 0).putInt("touch_size", 1)
                 .putInt("touch_opacity", 1).putInt("touch_pad", 0)
-                .putBoolean("touch_sides", false).putInt("touch_position", 1).apply();
+                .putBoolean("touch_sides", false).putInt("touch_position", 1)
+                .putBoolean("touch_relative_aim", true).putInt("touch_aim_speed", 1).apply();
             touchControls.resetLayout();
         } else if ("check".equals(id)) {
             startUpdateCheck(true);
@@ -653,6 +692,9 @@ public final class MainActivity extends Activity {
             preferences.getInt("touch_pad", 0),
             preferences.getBoolean("touch_sides", false),
             preferences.getInt("touch_position", 1));
+        touchControls.configureAim(preferences.getBoolean("touch_relative_aim", true),
+            preferences.getInt("touch_aim_speed", 1),
+            "stretch".equals(preferences.getString("display_mode", "original")));
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {

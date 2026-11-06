@@ -8,7 +8,7 @@ import android.graphics.Path;
 import android.view.MotionEvent;
 import io.github.frostfrontend.FrostTouchControls;
 
-/** A movable movement pad and two buttons, plus direct touch aim/fire. */
+/** Movable controls and Arcane-style relative combat aiming; menus stay Direct. */
 public final class LastStand2TouchControls extends FrostTouchControls {
     public interface Input {
         void key(String key, boolean down);
@@ -23,6 +23,8 @@ public final class LastStand2TouchControls extends FrostTouchControls {
     private float radius, thumbX, thumbY;
     private int sizeIndex = 1, opacityIndex = 1, padMode, positionIndex = 1;
     private boolean swapped;
+    private boolean relativeAim = true, combat, relativeGesture, stretch;
+    private float aimX = 0.5f, aimY = 0.5f, lastAimX, lastAimY, aimGain = 1.35f;
 
     public LastStand2TouchControls(Context context, Input input) {
         super(context, "the-last-stand-2", "movement", "reload", "swap");
@@ -34,6 +36,16 @@ public final class LastStand2TouchControls extends FrostTouchControls {
         padMode = pad == 1 ? 1 : 0; this.swapped = swapped;
         positionIndex = Math.max(0, Math.min(2, position)); invalidate();
     }
+    public void configureAim(boolean relative, int speed, boolean stretch) {
+        if (relativeAim != relative || this.stretch != stretch) releaseAll();
+        relativeAim = relative; this.stretch = stretch;
+        aimGain = new float[]{0.8f, 1.35f, 2f}[Math.max(0, Math.min(2, speed))];
+    }
+    public void setCombat(boolean combat) {
+        if (this.combat != combat) releaseAll();
+        this.combat = combat;
+    }
+    public void setAimPosition(float x, float y) { aimX = x; aimY = y; }
     @Override protected void computeLayout() {
         setLayoutMirrored(swapped);
         radius = dp(59) * new float[]{0.84f, 1f, 1.16f}[sizeIndex];
@@ -55,12 +67,26 @@ public final class LastStand2TouchControls extends FrostTouchControls {
         float distance = (float) Math.hypot(dx, dy);
         if (distance < 0.27f) { dx = 0; dy = 0; }
         else if (distance > 1f) { dx /= distance; dy /= distance; }
+        boolean changed = thumbX != dx || thumbY != dy;
         thumbX = dx; thumbY = dy;
         set(0, dx < -0.28f); set(1, dx > 0.28f);
-        set(2, dy < -0.28f); set(3, dy > 0.28f); invalidate();
+        set(2, dy < -0.28f); set(3, dy > 0.28f);
+        if (changed) invalidate();
     }
     private void aim(String kind, float x, float y) {
-        input.pointer(kind, x / Math.max(1, getWidth()), y / Math.max(1, getHeight()));
+        float w = Math.max(1, getWidth()), h = Math.max(1, getHeight());
+        if (relativeGesture) {
+            aimX += (x - lastAimX) * aimGain / w;
+            aimY += (y - lastAimY) * aimGain / h;
+        } else { aimX = x / w; aimY = y / h; }
+        // Clamp to the visible game, so letterbox margins never swallow swipes.
+        float gameW = stretch ? w : Math.min(w, h * 40f / 21f);
+        float gameH = stretch ? h : Math.min(h, w * 21f / 40f);
+        float minX = (w - gameW) / (2 * w), minY = (h - gameH) / (2 * h);
+        aimX = Math.max(minX, Math.min(1 - minX, aimX));
+        aimY = Math.max(minY, Math.min(1 - minY, aimY));
+        lastAimX = x; lastAimY = y;
+        input.pointer(kind, aimX, aimY);
     }
     @Override protected boolean onGameplayTouch(MotionEvent event) {
         int action = event.getActionMasked(), index = event.getActionIndex();
@@ -79,7 +105,10 @@ public final class LastStand2TouchControls extends FrostTouchControls {
                     if (hit == 0) move(x, y); else set(hit + 3, true);
                 }
             } else if (aimPointer == -1) {
-                aimPointer = id; aim("down", x, y);
+                aimPointer = id;
+                relativeGesture = relativeAim && combat;
+                lastAimX = x; lastAimY = y;
+                aim("down", x, y);
             }
             return true;
         }
@@ -87,7 +116,8 @@ public final class LastStand2TouchControls extends FrostTouchControls {
             int movement = event.findPointerIndex(owners[0]);
             if (movement >= 0) move(event.getX(movement), event.getY(movement));
             int pointer = event.findPointerIndex(aimPointer);
-            if (pointer >= 0) aim("move", event.getX(pointer), event.getY(pointer));
+            if (pointer >= 0 && (event.getX(pointer) != lastAimX || event.getY(pointer) != lastAimY))
+                aim("move", event.getX(pointer), event.getY(pointer));
             return true;
         }
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {

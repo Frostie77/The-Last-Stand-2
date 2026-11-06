@@ -6,6 +6,7 @@ const html = fs.readFileSync('app/src/main/assets/www/index.html','utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const events = [], hooks = {};
 let suspended = 0, resumed = 0;
+const phases = [];
 const rect = {left:100,top:40,right:900,bottom:460,width:800,height:420};
 const canvas = {offsetWidth:800,offsetHeight:420,getBoundingClientRect:()=>rect,
   dispatchEvent:e=>events.push(e)};
@@ -15,6 +16,7 @@ const player = {shadowRoot:{querySelectorAll:()=>[canvas]}, focus(){},
 const game={style:{},appendChild(){},getBoundingClientRect:()=>rect};
 class Event { constructor(type,options){this.type=type;Object.assign(this,options);} }
 const context = {console,innerWidth:1000,innerHeight:500,PointerEvent:Event,KeyboardEvent:Event,
+  LastStand2Host:{reportPhase:phase=>phases.push(phase)},
   document:{hidden:false,getElementById:id=>id==='game'?game:{remove(){}},
     addEventListener:(id,fn)=>hooks['document:'+id]=fn},
   addEventListener:(id,fn)=>hooks[id]=fn,
@@ -66,5 +68,29 @@ const filtered=type=>events.filter(e=>e.type===type);
   context.tls2SetBackgroundPaused(false); assert.equal(resumed,1);
   key('swap',true,'touch'); hooks.blur();
   assert.equal(filtered('keyup').at(-1).code,'Space');
-  console.log('PASS: pointer targeting/scaling, fire and movement ownership, touch cancellation, pause and lifecycle.');
+  // Preserve direct menu transitions without adding repeated per-frame work.
+  key('fire',true,'touchAim');
+  player.onFSCommand('tls2Phase','combat');
+  assert.equal(filtered('pointerup').at(-1).buttons,0);
+  const phaseEvents=events.length;
+  player.onFSCommand('tls2Phase','combat');
+  player.onFSCommand('tls2Phase','invalid');
+  assert.equal(events.length,phaseEvents);
+  player.onFSCommand('tls2Phase','menu');
+  assert.deepEqual(phases,['combat','menu']);
+  // Raster budget is in physical pixels, independent of Android display density.
+  context.devicePixelRatio=2;
+  context.tls2SetRenderResolution(0);
+  assert.equal(parseFloat(game.style.width)*2,800);
+  assert.equal(parseFloat(game.style.height)*2,420);
+  context.tls2SetRenderResolution(1);
+  assert.equal(parseFloat(game.style.width)*2,1600);
+  context.tls2SetRenderResolution(2);
+  assert.ok(parseFloat(game.style.width)*2>1600);
+  context.tls2SetDisplayMode('stretch');
+  assert.equal(parseFloat(game.style.width),1000);
+  assert.equal(parseFloat(game.style.height),500);
+  context.tls2SetRenderResolution(0);
+  assert.equal(game.style.transform,'scale(2.5,2.380952380952381)');
+  console.log('PASS: pointer scaling, input ownership, scene transitions, render resolution and pause/lifecycle.');
 })().catch(e=>{console.error(e);process.exit(1)});

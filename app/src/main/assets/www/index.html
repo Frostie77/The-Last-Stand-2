@@ -7,7 +7,7 @@
 <style>
 html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#000; color:#fff; font-family:sans-serif; touch-action:none; }
 #stage { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
-#game { width:min(100vw, calc(100vh * 40 / 21)); height:min(100vh, calc(100vw * 21 / 40)); transform-origin:center center; }
+#game { flex-shrink:0; width:min(100vw, calc(100vh * 40 / 21)); height:min(100vh, calc(100vw * 21 / 40)); transform-origin:center center; }
 ruffle-player { display:block; width:100%; height:100%; }
 #status { position:absolute; left:20px; bottom:20px; color:#ddd; font-size:14px; pointer-events:none; }
 </style>
@@ -19,12 +19,14 @@ ruffle-player { display:block; width:100%; height:100%; }
 window.RufflePlayer = window.RufflePlayer || {};
 window.RufflePlayer.config = {
   autoplay:'on', unmuteOverlay:'visible', letterbox:'on', contextMenu:'off',
-  allowScriptAccess:false, allowNetworking:'all', publicPath:'ruffle/',
+  allowScriptAccess:true, allowNetworking:'all', publicPath:'ruffle/',
   quality:'high', scale:'showAll', forceScale:true
 };
 let player, tls2Ready = false;
 let tls2MenuPaused = false, tls2BackgroundPaused = false, tls2RufflePaused = false;
 let tls2DisplayMode = 'original';
+let tls2RenderResolution = 0;
+let tls2Phase = 'menu';
 let aimX = 0.5, aimY = 0.5, pointerCanvas = null;
 const sources = Object.create(null);
 const keys = {
@@ -40,6 +42,7 @@ const clamp = value => Math.max(0, Math.min(1, Number(value)));
 const fireHeld = () => !!(sources.fire && sources.fire.size);
 
 function canvasForPointer() {
+  if (pointerCanvas && pointerCanvas.isConnected) return pointerCanvas;
   if (!player || !player.shadowRoot) return null;
   return Array.from(player.shadowRoot.querySelectorAll('canvas'))
     .filter(c => c.getBoundingClientRect().width > 0 && c.getBoundingClientRect().height > 0)
@@ -135,15 +138,31 @@ window.tls2SetBackgroundPaused = value => {
   if (value) window.tls2ClearKeys();
   tls2BackgroundPaused = !!value; syncRufflePause();
 };
+function applyGameSize() {
+  const game = document.getElementById('game');
+  const stretch = tls2DisplayMode === 'stretch';
+  const width = stretch ? innerWidth : Math.min(innerWidth, innerHeight * 40 / 21);
+  const height = stretch ? innerHeight : Math.min(innerHeight, innerWidth * 21 / 40);
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  let baseWidth = width, baseHeight = height;
+  if (tls2RenderResolution !== 2) {
+    // Ruffle multiplies the untransformed CSS size by devicePixelRatio.
+    // Scale the finished image to the screen instead of rasterizing every
+    // shape, particle and antialiasing sample at the panel's full resolution.
+    const scale = Math.min(tls2RenderResolution === 1 ? 2 : 1,
+        width * dpr / 800, height * dpr / 420);
+    baseWidth = 800 * scale / dpr; baseHeight = 420 * scale / dpr;
+  }
+  game.style.width = baseWidth + 'px'; game.style.height = baseHeight + 'px';
+  game.style.transform = 'scale(' + width / baseWidth + ',' + height / baseHeight + ')';
+}
 window.tls2SetDisplayMode = mode => {
   tls2DisplayMode = mode === 'stretch' ? 'stretch' : 'original';
-  const game = document.getElementById('game');
-  game.style.transform = '';
-  if (tls2DisplayMode === 'stretch') {
-    const box = game.getBoundingClientRect();
-    if (box.width && box.height)
-      game.style.transform = 'scale(' + innerWidth / box.width + ',' + innerHeight / box.height + ')';
-  }
+  applyGameSize();
+};
+window.tls2SetRenderResolution = index => {
+  tls2RenderResolution = [0,1,2].includes(index) ? index : 0;
+  applyGameSize();
 };
 window.addEventListener('resize', () => window.tls2SetDisplayMode(tls2DisplayMode));
 document.addEventListener('visibilitychange', () => window.tls2SetBackgroundPaused(document.hidden));
@@ -152,8 +171,16 @@ window.addEventListener('load', async () => {
   const status = document.getElementById('status');
   try {
     player = window.RufflePlayer.newest().createPlayer();
+    player.onFSCommand = (command, phase) => {
+      if (command !== 'tls2Phase' || !['combat','menu'].includes(phase) || phase === tls2Phase) return;
+      tls2Phase = phase;
+      window.tls2ClearKeys();
+      if (window.LastStand2Host) window.LastStand2Host.reportPhase(phase);
+      console.info('LastStand2 phase: ' + phase);
+    };
     document.getElementById('game').appendChild(player);
-    await player.ruffle().load({url:'/game/the-last-stand-2.swf', allowNetworking:'all', allowScriptAccess:false, quality:'high'});
+    applyGameSize();
+    await player.ruffle().load({url:'/game/the-last-stand-2.swf', allowNetworking:'all', allowScriptAccess:true, quality:'high'});
     tls2Ready = true;
     status.remove();
     window.tls2SetDisplayMode(tls2DisplayMode);

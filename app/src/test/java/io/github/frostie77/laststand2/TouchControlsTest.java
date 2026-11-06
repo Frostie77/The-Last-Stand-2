@@ -24,6 +24,7 @@ import org.robolectric.annotation.Config;
 public class TouchControlsTest {
     private Context context;
     private final List<String> inputs = new ArrayList<>();
+    private final List<float[]> positions = new ArrayList<>();
     @Before public void setup() {
         context = RuntimeEnvironment.getApplication();
         context.getSharedPreferences("frost_touch_layout_the-last-stand-2",0).edit().clear().commit();
@@ -31,7 +32,9 @@ public class TouchControlsTest {
     private LastStand2TouchControls controls() {
         LastStand2TouchControls view = new LastStand2TouchControls(context,new LastStand2TouchControls.Input() {
             @Override public void key(String key,boolean down) { inputs.add(key+":"+down); }
-            @Override public void pointer(String kind,float x,float y) { inputs.add("pointer:"+kind); }
+            @Override public void pointer(String kind,float x,float y) {
+                inputs.add("pointer:"+kind); positions.add(new float[]{x,y});
+            }
         });
         view.layout(0,0,1000,600); draw(view); return view;
     }
@@ -81,6 +84,48 @@ public class TouchControlsTest {
         touch(view,MotionEvent.ACTION_POINTER_DOWN | 1<<8,new int[]{0,5},500,200,r[0],r[1]);
         touch(view,MotionEvent.ACTION_CANCEL,new int[]{5,0},r[0],r[1],500,200);
         assertEquals(Arrays.asList("pointer:down","reload:true","pointer:cancel","reload:false"),inputs);
+    }
+    @Test public void relativeCombatTouchNeverSnapsAndRetouchRetainsAim() {
+        LastStand2TouchControls view=controls(); view.setCombat(true);
+        view.setAimPosition(0.3f,0.4f);
+        touch(view,MotionEvent.ACTION_DOWN,new int[]{3},700,250);
+        assertArrayEquals(new float[]{0.3f,0.4f},positions.get(0),0.0001f);
+        touch(view,MotionEvent.ACTION_MOVE,new int[]{3},750,280);
+        assertArrayEquals(new float[]{0.3675f,0.4675f},positions.get(1),0.0001f);
+        touch(view,MotionEvent.ACTION_UP,new int[]{3},750,280);
+        touch(view,MotionEvent.ACTION_DOWN,new int[]{8},450,180);
+        assertArrayEquals(new float[]{0.3675f,0.4675f},positions.get(3),0.0001f);
+        touch(view,MotionEvent.ACTION_CANCEL,new int[]{8},450,180);
+        assertEquals("pointer:cancel",inputs.get(inputs.size()-1));
+    }
+    @Test public void menuTransitionCancelsHeldAimAndRestoresDirectTaps() {
+        LastStand2TouchControls view=controls(); view.setCombat(true);
+        touch(view,MotionEvent.ACTION_DOWN,new int[]{4},700,250);
+        view.setCombat(false);
+        assertEquals(Arrays.asList("pointer:down","pointer:cancel"),inputs);
+        touch(view,MotionEvent.ACTION_UP,new int[]{4},700,250);
+        touch(view,MotionEvent.ACTION_DOWN,new int[]{1},650,180);
+        assertArrayEquals(new float[]{0.65f,0.3f},positions.get(positions.size()-1),0.0001f);
+    }
+    @Test public void directPreferenceAndSensitivityWorkIndependently() {
+        LastStand2TouchControls view=controls(); view.setCombat(true);
+        view.configureAim(false,1,false);
+        touch(view,MotionEvent.ACTION_DOWN,new int[]{4},700,240);
+        assertArrayEquals(new float[]{0.7f,0.4f},positions.get(0),0.0001f);
+        view.configureAim(true,0,false); view.setAimPosition(0.4f,0.4f);
+        touch(view,MotionEvent.ACTION_DOWN,new int[]{3},600,200);
+        touch(view,MotionEvent.ACTION_MOVE,new int[]{3},700,230);
+        assertArrayEquals(new float[]{0.48f,0.44f},positions.get(positions.size()-1),0.0001f);
+    }
+    @Test public void stationaryFingerDoesNotFloodPointerEventsAndEdgesRespondImmediately() {
+        LastStand2TouchControls view=controls(); view.setCombat(true);
+        touch(view,MotionEvent.ACTION_DOWN,new int[]{3},600,200);
+        touch(view,MotionEvent.ACTION_MOVE,new int[]{3},600,200);
+        assertEquals(1,inputs.size());
+        touch(view,MotionEvent.ACTION_MOVE,new int[]{3},2000,0);
+        assertEquals(1f,positions.get(1)[0],0.0001f);
+        touch(view,MotionEvent.ACTION_MOVE,new int[]{3},1950,0);
+        assertEquals(0.9325f,positions.get(2)[0],0.0001f);
     }
     @Test public void savedLayoutRestoresAllButtonsAndTheirHitAreas() throws Exception {
         LastStand2TouchControls view=controls(); view.beginEditing();
