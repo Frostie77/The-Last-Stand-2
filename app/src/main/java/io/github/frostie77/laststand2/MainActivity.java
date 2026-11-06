@@ -230,19 +230,25 @@ public final class MainActivity extends Activity {
             }
         });
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
+        addAimController();
+        addFrontend();
+        webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html");
+        webView.requestFocus();
+    }
+
+    private void addAimController() {
         aimController = new AimController(webView, new AimController.Input() {
             @Override public void aim(float x, float y) {
+                noteGamepadInput();
                 if (touchControls != null) touchControls.setAimPosition(x, y);
                 jsAim(x, y);
             }
             @Override public void button(int code, boolean down, String source) {
+                if (down) noteGamepadInput();
                 String key = keyFor(code);
                 if (key != null) jsKey(key, down, source);
             }
         });
-        addFrontend();
-        webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html");
-        webView.requestFocus();
     }
 
     private void jsKey(String key, boolean down, String source) {
@@ -665,6 +671,10 @@ public final class MainActivity extends Activity {
             lastInputWasTouch = false;
             updateTouchControls();
         }
+        // Android buttons and the touch overlay can retain native focus after
+        // settings or an input-method change. Restore the WebView before its
+        // JS bridge focuses Ruffle; remapping cannot repair a focus loss.
+        if (webView != null && !webView.hasFocus()) webView.requestFocus();
     }
 
     @Override public boolean dispatchTouchEvent(MotionEvent event) {

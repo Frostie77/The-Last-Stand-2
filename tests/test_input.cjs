@@ -68,15 +68,26 @@ const filtered=type=>events.filter(e=>e.type===type);
   context.tls2SetBackgroundPaused(false); assert.equal(resumed,1);
   key('swap',true,'touch'); hooks.blur();
   assert.equal(filtered('keyup').at(-1).code,'Space');
-  // Preserve direct menu transitions without adding repeated per-frame work.
-  key('fire',true,'touchAim');
+  // Scene detection must not cancel gamepad buttons/axes, whose native state
+  // changes only on a later physical event. Touch cancels only its own source.
+  key('right',true,'stick');
+  key('fire',true,'rightTrigger'); key('fire',true,'touchAim');
+  events.length=0;
   player.onFSCommand('tls2Phase','combat');
-  assert.equal(filtered('pointerup').at(-1).buttons,0);
+  assert.equal(filtered('pointerup').length,0);
+  assert.equal(filtered('keyup').length,0);
+  context.tls2TouchPointer('cancel',0,0);
+  assert.equal(filtered('pointerup').length,0);
   const phaseEvents=events.length;
   player.onFSCommand('tls2Phase','combat');
   player.onFSCommand('tls2Phase','invalid');
   assert.equal(events.length,phaseEvents);
   player.onFSCommand('tls2Phase','menu');
+  assert.equal(filtered('pointerup').length,0);
+  assert.equal(filtered('keyup').length,0);
+  key('right',false,'stick'); key('fire',false,'rightTrigger');
+  assert.equal(filtered('keyup').at(-1).code,'KeyD');
+  assert.equal(filtered('pointerup').length,1);
   assert.deepEqual(phases,['combat','menu']);
   // Raster budget is in physical pixels, independent of Android display density.
   context.devicePixelRatio=2;

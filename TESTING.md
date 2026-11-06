@@ -8,6 +8,8 @@ The touch view owns fingers by stable pointer ID, allowing the movement pad, aim
 
 For the exact tested Not Doppler v1.31 file, a host-only patch adds phase notifications to the game's showCrosshairs/hideCrosshairs functions in memory. The imported file stays unchanged. Unknown SWF copies are served unchanged and retain Direct aiming. The HTML ignores unrelated FSCommands and duplicate phases. Render Resolution limits Ruffle's physical canvas pixels independently of display density, then scales the finished image; it does not change simulation speed or zombie counts. Performance under heavy fire and chainsaw use still requires an Odin retest.
 
+Activity-level gamepad regression tests cover native focus restoration, first analogue-trigger press, remapped buttons, Auto touch hiding, and movement/aim after closing settings. Scene changes cancel the touch view's own inputs without clearing held controller sources; the HTML tests verify that stick movement and trigger fire remain held until their physical releases.
+
 ## Odin checks before release
 
 1. First launch, import, menu cursor/taps and starting a new game.

@@ -174,7 +174,9 @@ window.addEventListener('load', async () => {
     player.onFSCommand = (command, phase) => {
       if (command !== 'tls2Phase' || !['combat','menu'].includes(phase) || phase === tls2Phase) return;
       tls2Phase = phase;
-      window.tls2ClearKeys();
+      // A cursor/scene change belongs to touch aiming. Preserve held gamepad
+      // sources: Android sends their next event only when a button/axis changes.
+      // The native touch view cancels its own fingers when reportPhase runs.
       if (window.LastStand2Host) window.LastStand2Host.reportPhase(phase);
       console.info('LastStand2 phase: ' + phase);
     };
