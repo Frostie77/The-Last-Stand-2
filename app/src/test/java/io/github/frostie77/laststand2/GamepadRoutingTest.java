@@ -161,6 +161,9 @@ public class GamepadRoutingTest {
     @Test public void stickMovementAndAimRestoreFocusAfterSettingsClose() throws Exception {
         FrostFrontendView frontend=(FrostFrontendView)field("frontend");
         frontend.open(); frontend.close(); assertTrue(menu.requestFocus());
+        // Closing the overlay requests another layout. Give the stub WebView
+        // a real viewport so this asserts movement, not a zero-delta event.
+        web.layout(0,0,1000,600);
         web.focusRequests=0;
         axes(0.9f,0.8f,0);
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32));
