@@ -69,6 +69,9 @@ public final class MainActivity extends Activity {
     private String updateLatestText = "Not checked";
     private String updateReleaseUrl;
     private AimController aimController;
+    private boolean aimInFlight, aimPending;
+    private float pendingAimX, pendingAimY;
+    private int aimGeneration;
     private static final FrostControlProfile CONTROL_PROFILE = FrostControlProfile.of("the-last-stand-2",
         new FrostButtonMapper.Action("fire", "Fire (hold)", KeyEvent.KEYCODE_BUTTON_R2),
         new FrostButtonMapper.Action("select", "Pointer Click / Fire", KeyEvent.KEYCODE_BUTTON_A),
@@ -175,6 +178,8 @@ public final class MainActivity extends Activity {
             return;
         }
         root.removeAllViews();
+        aimGeneration++;
+        aimInFlight = aimPending = false;
         if (webView != null) { webView.destroy(); webView = null; }
         WebView.setWebContentsDebuggingEnabled(
             (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0);
@@ -234,7 +239,9 @@ public final class MainActivity extends Activity {
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
         addAimController();
         addFrontend();
-        webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html");
+        String quality = new String[]{"low", "medium", "high"}[Math.max(0,
+            Math.min(2, preferences.getInt("antialiasing", 0)))];
+        webView.loadUrl("https://appassets.androidplatform.net/assets/www/index.html?quality=" + quality);
         webView.requestFocus();
     }
 
@@ -256,7 +263,9 @@ public final class MainActivity extends Activity {
     private void jsKey(String key, boolean down, String source) {
         if (webView == null) return;
         // All values are fixed strings from the input map below, not user input.
-        webView.evaluateJavascript("window.tls2Key && window.tls2Key('" + key + "'," + down + ",'" + source + "')", null);
+        // A button edge uses the newest cursor, even if movement was coalesced
+        // while the renderer was busy. Never coalesce presses or releases.
+        webView.evaluateJavascript(takePendingAim() + "window.tls2Key && window.tls2Key('" + key + "'," + down + ",'" + source + "')", null);
     }
 
     /** D-pad always moves; movement on the analogue stick is also universal. */
@@ -274,6 +283,7 @@ public final class MainActivity extends Activity {
     }
 
     private void releaseGameInputs() {
+        aimPending = false;
         if (aimController != null) aimController.release();
         pressedGamepadButtons.clear();
         stickUp = stickDown = stickLeft = stickRight = false;
@@ -311,6 +321,8 @@ public final class MainActivity extends Activity {
             @Override public void pointer(String kind, float x, float y) {
                 if (webView == null) return;
                 if (!"cancel".equals(kind) && aimController != null) aimController.setPosition(x, y);
+                if ("move".equals(kind)) { jsAim(x, y); return; }
+                aimPending = false;
                 webView.evaluateJavascript("window.tls2TouchPointer && window.tls2TouchPointer('" +
                     kind + "'," + x + "," + y + ")", null);
             }
@@ -361,7 +373,11 @@ public final class MainActivity extends Activity {
                             item("render_resolution", "Render Resolution",
                                 new String[]{"800×420", "1600×840", "Device"}[Math.max(0,
                                     Math.min(2, preferences.getInt("render_resolution", 0)))],
-                                "Lower resolutions reduce rendering load; changes apply immediately"));
+                                "Lower resolutions reduce rendering load; changes apply immediately"),
+                            item("antialiasing", "Antialiasing",
+                                new String[]{"Off", "2×", "4×"}[Math.max(0,
+                                    Math.min(2, preferences.getInt("antialiasing", 0)))],
+                                "Off reduces rendering load; changes apply next launch"));
                     case "sound":
                         return Collections.singletonList(item("speaker_test",
                             "Speaker Test: Left → Right → Both", "",
@@ -464,7 +480,7 @@ public final class MainActivity extends Activity {
             }
 
             @Override public void onItemAdjusted(String tabId, String itemId, int direction) {
-                if (itemId.equals("display") || itemId.equals("render_resolution") || itemId.equals("automatic") ||
+                if (itemId.equals("display") || itemId.equals("render_resolution") || itemId.equals("antialiasing") || itemId.equals("automatic") ||
                     itemId.equals("directions") ||
                     itemId.equals("deadzone") || itemId.startsWith("aim_") || itemId.startsWith("invert_") ||
                     itemId.startsWith("touch_") && !itemId.equals("touch_reset"))
@@ -492,6 +508,10 @@ public final class MainActivity extends Activity {
     }
 
     private void handleItem(String id, int direction) {
+        if ("antialiasing".equals(id)) {
+            cycle(id, 3, direction);
+            return;
+        }
         if ("speaker_test".equals(id)) {
             if (speakerTest.start())
                 android.widget.Toast.makeText(this, "LEFT, then RIGHT, then BOTH",
@@ -818,8 +838,28 @@ public final class MainActivity extends Activity {
     }
 
     private void jsAim(float x, float y) {
-        if (webView != null)
-            webView.evaluateJavascript("window.tls2Aim && window.tls2Aim(" + x + "," + y + ")", null);
+        if (webView == null) return;
+        pendingAimX = x; pendingAimY = y; aimPending = true;
+        dispatchPendingAim();
+    }
+
+    private String takePendingAim() {
+        if (!aimPending) return "";
+        aimPending = false;
+        return "window.tls2Aim && window.tls2Aim(" + pendingAimX + "," + pendingAimY + ");";
+    }
+
+    private void dispatchPendingAim() {
+        if (webView == null || aimInFlight || !aimPending) return;
+        WebView target = webView;
+        int generation = aimGeneration;
+        String script = takePendingAim();
+        aimInFlight = true;
+        target.evaluateJavascript(script, ignored -> {
+            if (target != webView || generation != aimGeneration) return;
+            aimInFlight = false;
+            dispatchPendingAim();
+        });
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {

@@ -107,7 +107,7 @@ try {
             throw 'The game WebView could not be reached. Install the updated Debug APK, reopen the imported game, then run this capture again.'
         }
         $tls2Page = $tls2Pages | Where-Object {
-            $_.url -eq 'https://appassets.androidplatform.net/assets/www/index.html'
+            $_.url -match '^https://appassets\.androidplatform\.net/assets/www/index\.html(?:\?|$)'
         } | Select-Object -First 1
         if (-not $tls2Page) { throw 'The imported game page is not open.' }
         $WebSocketUrl = $tls2Page.webSocketDebuggerUrl

@@ -7,9 +7,18 @@ const fixture=path.join(temporary,'input.swf');
 require('child_process').execFileSync(process.env.TLS2_PYTHON||(process.platform==='win32'?'python':'python3'),[path.join(__dirname,'make_input_fixture.py'),fixture]);
 const origin='https://appassets.androidplatform.net';
 const mode=process.env.TLS2_BASELINE_HTML?'old':'new';
+const quality=process.env.TLS2_QUALITY||'low';
 (async()=>{
  const browser=await chromium.launch({...(process.env.TLS2_CHROMIUM_PATH?{executablePath:process.env.TLS2_CHROMIUM_PATH}:{}),headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--enable-unsafe-swiftshader','--use-angle=swiftshader','--autoplay-policy=no-user-gesture-required']});
  const page=await browser.newPage({viewport:{width:1000,height:525},deviceScaleFactor:1});
+ await page.addInitScript(()=>{
+  window.multisampleAllocations=[];
+  const gl=WebGL2RenderingContext.prototype,original=gl.renderbufferStorageMultisample;
+  gl.renderbufferStorageMultisample=function(target,samples,format,width,height){
+   window.multisampleAllocations.push({samples,width,height});
+   return original.call(this,target,samples,format,width,height);
+  };
+ });
  const logs=[];page.on('console',m=>{logs.push(m.text());if(logs.length>40)logs.shift()});page.on('pageerror',e=>logs.push('ERROR '+e.message));
  await page.route('**/*',async route=>{
   const u=new URL(route.request().url());let file,type;
@@ -21,8 +30,14 @@ const mode=process.env.TLS2_BASELINE_HTML?'old':'new';
  const probe=()=>page.evaluate(()=>document.querySelector('ruffle-player').tls2FixtureState().split('|').map(v=>v==='true'?true:v==='false'?false:+v));
  const key=(id,down,source)=>page.evaluate(p=>window.tls2Key(...p),[id,down,source]);
  try{
-  await page.goto(origin+'/assets/www/index.html');
+  await page.goto(origin+'/assets/www/index.html?quality='+quality);
   await page.waitForFunction(()=>typeof document.querySelector('ruffle-player')?.tls2FixtureState==='function',null,{timeout:30000});
+  const rendering=await page.evaluate(()=>({quality:document.querySelector('ruffle-player').ruffle().loadedConfig.quality,allocations:window.multisampleAllocations}));
+  if(mode==='new') {
+   assert.equal(rendering.quality,quality);
+   if(quality==='low') assert.ok(rendering.allocations.every(a=>a.samples<=1),'Off must not allocate multisample renderbuffers');
+  }
+  console.log(JSON.stringify({mode,rendering}));
   await page.evaluate(()=>{const p=document.querySelector('ruffle-player');p.focus();p.dispatchEvent(new FocusEvent('focusin',{bubbles:true,composed:true}));window.tls2Aim(.4,.5)});
   let before=await probe();await key('down',true,'stick');await page.waitForTimeout(160);let held=await probe();await key('down',false,'stick');
   await key('fire',true,'rightTrigger');await page.waitForTimeout(80);await key('fire',false,'rightTrigger');let first=await probe();

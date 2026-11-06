@@ -57,6 +57,12 @@ public class AimControllerTest {
         assertEquals(List.of("105:true:rightTrigger","105:false:rightTrigger",
             "105:true:rightTrigger","105:false:rightTrigger"),buttons);
     }
+    @Test public void pushingPastScreenEdgeDoesNotSendStationaryAim() {
+        controller.setPosition(1f,0.5f); axes(0.9f,0,0); frames(100);
+        assertTrue(positions.isEmpty());
+        axes(-0.9f,0,0); frames(32);
+        assertFalse(positions.isEmpty()); controller.release();
+    }
     @Test public void aimInversionDoesNotAffectMovementKeysAndDriftDoesNotMoveCursor() {
         controller.configure(1,1,true,true);axes(0.1f,0.1f,0);frames(64);
         assertTrue(positions.isEmpty());axes(0.7f,0.7f,0);frames(64);

@@ -42,6 +42,7 @@ public class GamepadRoutingTest {
     private Button menu;
     private final List<String> scripts = new ArrayList<>();
     private final List<Boolean> focusRequestedAtDelivery = new ArrayList<>();
+    private final List<ValueCallback<String>> completions = new ArrayList<>();
 
     private final class RecordingWebView extends WebView {
         int focusRequests;
@@ -56,6 +57,7 @@ public class GamepadRoutingTest {
             // Robolectric has no Chromium focus owner. Observe the native
             // focus request before bridge delivery instead of its stub state.
             scripts.add(script); focusRequestedAtDelivery.add(focusRequests > 0);
+            if (callback != null) completions.add(callback);
         }
     }
     private Object field(String name) throws Exception {
@@ -81,6 +83,7 @@ public class GamepadRoutingTest {
         menu=(Button)field("menuButton"); menu.setFocusableInTouchMode(true);
         assertTrue(menu.requestFocus()); assertTrue(menu.hasFocus());
         scripts.clear(); focusRequestedAtDelivery.clear(); web.focusRequests=0;
+        completions.clear();
     }
     @After public void teardown() { if (lifecycle!=null) lifecycle.pause().stop().destroy(); }
     private void key(int code,boolean down) {
@@ -103,6 +106,34 @@ public class GamepadRoutingTest {
                 focusRequestedAtDelivery.get(i)); return;
         }
         fail("No game input: "+fragment+"; scripts="+scripts);
+    }
+    private void aim(float x,float y) throws Exception {
+        Method method=MainActivity.class.getDeclaredMethod("jsAim",float.class,float.class);
+        method.setAccessible(true); method.invoke(activity,x,y);
+    }
+    @Test public void busyRendererGetsLatestAimWithoutAQueueOfOldPositions() throws Exception {
+        aim(0.1f,0.2f);
+        for(int i=2;i<=90;i++) aim(i/100f,0.2f);
+        assertEquals(1,scripts.size());
+        completions.remove(0).onReceiveValue("null");
+        assertEquals(2,scripts.size());
+        assertTrue(scripts.get(1).contains("tls2Aim(0.9,0.2)"));
+        completions.remove(0).onReceiveValue("null");
+        assertEquals(2,scripts.size());
+    }
+    @Test public void buttonEdgesFlushLatestAimAndPauseDiscardsPendingMovement() throws Exception {
+        aim(0.1f,0.2f); aim(0.8f,0.7f);
+        key(KeyEvent.KEYCODE_BUTTON_A,true);
+        assertTrue(scripts.get(1).contains("tls2Aim(0.8,0.7);window.tls2Key"));
+        key(KeyEvent.KEYCODE_BUTTON_A,false);
+        assertTrue(scripts.get(2).contains("'select',false,'button96'"));
+        completions.remove(0).onReceiveValue("null");
+        assertEquals(3,scripts.size());
+        aim(0.3f,0.4f); aim(0.4f,0.5f);
+        invoke("releaseGameInputs");
+        int count=scripts.size();
+        completions.remove(0).onReceiveValue("null");
+        assertEquals(count,scripts.size());
     }
     @Test public void buttonRestoresFocusAndAutoHidesTouchBeforeDelivery() throws Exception {
         key(KeyEvent.KEYCODE_BUTTON_A,true);

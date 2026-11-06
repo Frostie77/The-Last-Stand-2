@@ -7,7 +7,7 @@ const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const events = [], hooks = {};
 const canvasHooks = {};
 let ruffleHasFocus = true;
-let suspended = 0, resumed = 0;
+let suspended = 0, resumed = 0, loadedConfig;
 const phases = [];
 const rect = {left:100,top:40,right:900,bottom:460,width:800,height:420};
 const canvas = {offsetWidth:800,offsetHeight:420,getBoundingClientRect:()=>rect,
@@ -18,7 +18,7 @@ let canvases=[canvas];
 const player = {shadowRoot:{querySelectorAll:()=>canvases},
   focus(){if(context.document.activeElement!==player)ruffleHasFocus=true;context.document.activeElement=player;},
   blur(){context.document.activeElement=null;ruffleHasFocus=false;},
-  dispatchEvent:e=>{events.push(e);if(ruffleHasFocus)e.preventDefault();},ruffle:()=>({load:async()=>{},
+  dispatchEvent:e=>{events.push(e);if(ruffleHasFocus)e.preventDefault();},ruffle:()=>({load:async options=>{loadedConfig=options;},
     suspend:()=>suspended++,resume:()=>resumed++})};
 const game={style:{},appendChild(){},getBoundingClientRect:()=>rect};
 class Event {
@@ -26,6 +26,7 @@ class Event {
   preventDefault(){this.defaultPrevented=true;}
 }
 const context = {console,innerWidth:1000,innerHeight:500,PointerEvent:Event,KeyboardEvent:Event,
+  URLSearchParams,location:{search:''},
   LastStand2Host:{reportPhase:phase=>phases.push(phase)},
   document:{hidden:false,getElementById:id=>id==='game'?game:{remove(){}},
     addEventListener:(id,fn)=>hooks['document:'+id]=fn},
@@ -37,6 +38,8 @@ const key=(id,down,source)=>context.tls2Key(id,down,source);
 const filtered=type=>events.filter(e=>e.type===type);
 (async()=>{
   await hooks.load();
+  assert.equal(context.RufflePlayer.config.quality,'low');
+  assert.equal(loadedConfig.quality,'low');
   context.tls2Aim(0.7,0.6);
   let e=filtered('pointermove').at(-1);
   assert.equal(e.offsetX,600); assert.equal(e.offsetY,260);
@@ -145,5 +148,10 @@ const filtered=type=>events.filter(e=>e.type===type);
   assert.equal(parseFloat(game.style.height),500);
   context.tls2SetRenderResolution(0);
   assert.equal(game.style.transform,'scale(2.5,2.380952380952381)');
+  for(const requested of ['low','medium','high','bogus']) {
+    const isolated={...context,RufflePlayer:{},location:{search:'?quality='+requested}};
+    isolated.window=isolated;vm.runInNewContext(script,isolated);
+    assert.equal(isolated.RufflePlayer.config.quality,requested==='bogus'?'low':requested);
+  }
   console.log('PASS: pointer scaling, input ownership, scene transitions, render resolution and pause/lifecycle.');
 })().catch(e=>{console.error(e);process.exit(1)});

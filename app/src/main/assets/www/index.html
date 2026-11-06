@@ -17,10 +17,12 @@ ruffle-player { display:block; width:100%; height:100%; }
 <div id="status">Starting The Last Stand 2…</div>
 <script>
 window.RufflePlayer = window.RufflePlayer || {};
+const requestedQuality = new URLSearchParams(location.search).get('quality');
+const tls2Quality = ['low','medium','high'].includes(requestedQuality) ? requestedQuality : 'low';
 window.RufflePlayer.config = {
   autoplay:'on', unmuteOverlay:'visible', letterbox:'on', contextMenu:'off',
   allowScriptAccess:true, allowNetworking:'all', publicPath:'ruffle/',
-  quality:'high', scale:'showAll', forceScale:true
+  quality:tls2Quality, scale:'showAll', forceScale:true
 };
 let player, tls2Ready = false;
 let tls2MenuPaused = false, tls2BackgroundPaused = false, tls2RufflePaused = false;
@@ -214,7 +216,7 @@ window.addEventListener('load', async () => {
     };
     document.getElementById('game').appendChild(player);
     applyGameSize();
-    await player.ruffle().load({url:'/game/the-last-stand-2.swf', allowNetworking:'all', allowScriptAccess:true, quality:'high'});
+    await player.ruffle().load({url:'/game/the-last-stand-2.swf', allowNetworking:'all', allowScriptAccess:true, quality:tls2Quality});
     tls2Ready = true;
     status.remove();
     window.tls2SetDisplayMode(tls2DisplayMode);
