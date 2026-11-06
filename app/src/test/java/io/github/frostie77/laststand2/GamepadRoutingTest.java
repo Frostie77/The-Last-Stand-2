@@ -2,6 +2,7 @@ package io.github.frostie77.laststand2;
 
 import static org.junit.Assert.*;
 import android.content.SharedPreferences;
+import android.graphics.Rect;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.InputDevice;
@@ -40,14 +41,21 @@ public class GamepadRoutingTest {
     private RecordingWebView web;
     private Button menu;
     private final List<String> scripts = new ArrayList<>();
-    private final List<Boolean> focusAtDelivery = new ArrayList<>();
+    private final List<Boolean> focusRequestedAtDelivery = new ArrayList<>();
 
     private final class RecordingWebView extends WebView {
+        int focusRequests;
         RecordingWebView() {
             super(activity); setFocusable(true); setFocusableInTouchMode(true);
         }
+        @Override public boolean requestFocus(int direction, Rect previous) {
+            focusRequests++;
+            return super.requestFocus(direction, previous);
+        }
         @Override public void evaluateJavascript(String script, ValueCallback<String> callback) {
-            scripts.add(script); focusAtDelivery.add(hasFocus());
+            // Robolectric has no Chromium focus owner. Observe the native
+            // focus request before bridge delivery instead of its stub state.
+            scripts.add(script); focusRequestedAtDelivery.add(focusRequests > 0);
         }
     }
     private Object field(String name) throws Exception {
@@ -72,7 +80,7 @@ public class GamepadRoutingTest {
         root.layout(0,0,1000,600);
         menu=(Button)field("menuButton"); menu.setFocusableInTouchMode(true);
         assertTrue(menu.requestFocus()); assertTrue(menu.hasFocus());
-        scripts.clear(); focusAtDelivery.clear();
+        scripts.clear(); focusRequestedAtDelivery.clear(); web.focusRequests=0;
     }
     @After public void teardown() { if (lifecycle!=null) lifecycle.pause().stop().destroy(); }
     private void key(int code,boolean down) {
@@ -91,7 +99,8 @@ public class GamepadRoutingTest {
     }
     private void assertFocusedInput(String fragment) {
         for(int i=scripts.size()-1;i>=0;i--) if(scripts.get(i).contains(fragment)) {
-            assertTrue("Game input reached an unfocused WebView: "+fragment,focusAtDelivery.get(i)); return;
+            assertTrue("Game input arrived before native focus was requested: "+fragment,
+                focusRequestedAtDelivery.get(i)); return;
         }
         fail("No game input: "+fragment+"; scripts="+scripts);
     }
@@ -112,6 +121,7 @@ public class GamepadRoutingTest {
         FrostFrontendView frontend=(FrostFrontendView)field("frontend");
         frontend.open(); frontend.close(); assertFalse(frontend.isOpen());
         assertTrue(menu.requestFocus());
+        web.focusRequests=0;
         key(KeyEvent.KEYCODE_BUTTON_B,true);
         assertFocusedInput("'reload',true,'button97'");
         key(KeyEvent.KEYCODE_BUTTON_B,false);
@@ -120,6 +130,7 @@ public class GamepadRoutingTest {
     @Test public void stickMovementAndAimRestoreFocusAfterSettingsClose() throws Exception {
         FrostFrontendView frontend=(FrostFrontendView)field("frontend");
         frontend.open(); frontend.close(); assertTrue(menu.requestFocus());
+        web.focusRequests=0;
         axes(0.9f,0.8f,0);
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32));
         assertFocusedInput("'right',true,'stick'");
