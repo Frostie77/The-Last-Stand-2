@@ -10,6 +10,10 @@ For the exact tested Not Doppler v1.31 file, a host-only patch adds phase notifi
 
 Activity-level gamepad regression tests cover native focus restoration, first analogue-trigger press, remapped buttons, Auto touch hiding, and movement/aim after closing settings. Scene changes cancel the touch view's own inputs without clearing held controller sources; the HTML tests verify that stick movement and trigger fire remain held until their physical releases.
 
+The HTML bridge also recovers Ruffle's internal keyboard focus when an input event is ignored despite unchanged DOM focus. It re-enters the stage after pointer leave/cancel and encounter changes, and selects the currently visible canvas instead of retaining a hidden connected canvas. These cases are covered by the bridge tests. A separate runtime check with pinned Ruffle 0.7.1 and an independently generated Flash input fixture verifies `Key.isDown`, frame-driven movement and `onPress` firing after focus/leave transitions; this is an engine regression check, not an Odin gameplay result.
+
+Run that optional engine check with `node tests/test_ruffle_recovery.cjs` after preparing the pinned runtime and installing Playwright with Chromium. `TLS2_RUFFLE_PATH` and `TLS2_CHROMIUM_PATH` can select existing local test resources. The fixture is generated in a temporary directory and contains no original game content. `TLS2_BASELINE_HTML` can point to an older wrapper to verify that the original input loss is reproduced.
+
 ## Odin checks before release
 
 1. First launch, import, menu cursor/taps and starting a new game.

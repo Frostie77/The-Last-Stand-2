@@ -28,6 +28,7 @@ let tls2DisplayMode = 'original';
 let tls2RenderResolution = 0;
 let tls2Phase = 'menu';
 let aimX = 0.5, aimY = 0.5, pointerCanvas = null;
+let pointerInStage = false;
 const sources = Object.create(null);
 const keys = {
   up:{key:'w',code:'KeyW',keyCode:87},
@@ -40,9 +41,16 @@ const keys = {
 };
 const clamp = value => Math.max(0, Math.min(1, Number(value)));
 const fireHeld = () => !!(sources.fire && sources.fire.size);
+const pointerLeftStage = () => { pointerInStage = false; };
+
+function focusPlayer(force = false) {
+  // Ruffle has its own focus flag. DOM focus alone cannot repair that flag
+  // when Android changed focus without changing document.activeElement.
+  if (force) player.blur();
+  player.focus();
+}
 
 function canvasForPointer() {
-  if (pointerCanvas && pointerCanvas.isConnected) return pointerCanvas;
   if (!player || !player.shadowRoot) return null;
   return Array.from(player.shadowRoot.querySelectorAll('canvas'))
     .filter(c => c.getBoundingClientRect().width > 0 && c.getBoundingClientRect().height > 0)
@@ -64,15 +72,31 @@ function sendPointer(type, down) {
     button:type === 'pointermove' ? -1 : 0, buttons:down ? 1 : 0, pressure:down ? 0.5 : 0
   };
   if (pointerCanvas !== canvas) {
+    if (pointerCanvas) {
+      pointerCanvas.removeEventListener('pointerleave', pointerLeftStage);
+      pointerCanvas.removeEventListener('pointercancel', pointerLeftStage);
+    }
     pointerCanvas = canvas;
-    canvas.dispatchEvent(new PointerEvent('pointerenter', options));
+    pointerInStage = false;
+    canvas.addEventListener('pointerleave', pointerLeftStage);
+    canvas.addEventListener('pointercancel', pointerLeftStage);
   }
-  const event = new PointerEvent(type, options);
-  Object.defineProperties(event, {
-    offsetX:{configurable:true, value:(x - r.left) * canvas.offsetWidth / Math.max(1,r.width)},
-    offsetY:{configurable:true, value:(y - r.top) * canvas.offsetHeight / Math.max(1,r.height)}
-  });
-  canvas.dispatchEvent(event);
+  if (!pointerInStage) {
+    canvas.dispatchEvent(new PointerEvent('pointerenter', options));
+    pointerInStage = true;
+  }
+  const deliver = () => {
+    const event = new PointerEvent(type, options);
+    Object.defineProperties(event, {
+      offsetX:{configurable:true, value:(x - r.left) * canvas.offsetWidth / Math.max(1,r.width)},
+      offsetY:{configurable:true, value:(y - r.top) * canvas.offsetHeight / Math.max(1,r.height)}
+    });
+    canvas.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  // In pinned Ruffle 0.7.1, pointermove is prevented only when its internal
+  // keyboard focus flag is set. Restore that focus before the next press.
+  if (!deliver() && type === 'pointermove') { focusPlayer(true); deliver(); }
   return true;
 }
 
@@ -86,10 +110,17 @@ window.tls2Aim = (nx, ny) => {
 function sendKey(id, down) {
   if (id === 'fire') { sendPointer(down ? 'pointerdown' : 'pointerup', down); return; }
   const spec = keys[id];
-  player.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', {
-    key:spec.key, code:spec.code, keyCode:spec.keyCode, which:spec.keyCode,
-    bubbles:true, composed:true, cancelable:true
-  }));
+  const deliver = () => {
+    const event = new KeyboardEvent(down ? 'keydown' : 'keyup', {
+      key:spec.key, code:spec.code, keyCode:spec.keyCode, which:spec.keyCode,
+      bubbles:true, composed:true, cancelable:true
+    });
+    player.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  // Ruffle prevents accepted keyboard events. Retry an ignored edge once
+  // after a real focus cycle; preserve all held-source ownership.
+  if (!deliver()) { focusPlayer(true); deliver(); }
 }
 
 window.tls2Key = (id, pressed, source) => {
@@ -101,7 +132,7 @@ window.tls2Key = (id, pressed, source) => {
   if (pressed) sources[id].add(source); else sources[id].delete(source);
   const nowDown = sources[id].size > 0;
   if (wasDown === nowDown) return;
-  player.focus();
+  focusPlayer();
   if (id === 'fire' && nowDown) sendPointer('pointermove', false);
   sendKey(id, nowDown);
 };
@@ -174,6 +205,7 @@ window.addEventListener('load', async () => {
     player.onFSCommand = (command, phase) => {
       if (command !== 'tls2Phase' || !['combat','menu'].includes(phase) || phase === tls2Phase) return;
       tls2Phase = phase;
+      pointerInStage = false;
       // A cursor/scene change belongs to touch aiming. Preserve held gamepad
       // sources: Android sends their next event only when a button/axis changes.
       // The native touch view cancels its own fingers when reportPhase runs.

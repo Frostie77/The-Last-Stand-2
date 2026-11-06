@@ -5,16 +5,26 @@ const vm = require('node:vm');
 const html = fs.readFileSync('app/src/main/assets/www/index.html','utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const events = [], hooks = {};
+const canvasHooks = {};
+let ruffleHasFocus = true;
 let suspended = 0, resumed = 0;
 const phases = [];
 const rect = {left:100,top:40,right:900,bottom:460,width:800,height:420};
 const canvas = {offsetWidth:800,offsetHeight:420,getBoundingClientRect:()=>rect,
-  dispatchEvent:e=>events.push(e)};
-const player = {shadowRoot:{querySelectorAll:()=>[canvas]}, focus(){},
-  dispatchEvent:e=>events.push(e),ruffle:()=>({load:async()=>{},
+  addEventListener:(type,listener)=>canvasHooks[type]=listener,
+  removeEventListener:type=>delete canvasHooks[type],
+  dispatchEvent:e=>{events.push(e);if(e.type==='pointerdown'||ruffleHasFocus)e.preventDefault();}};
+let canvases=[canvas];
+const player = {shadowRoot:{querySelectorAll:()=>canvases},
+  focus(){if(context.document.activeElement!==player)ruffleHasFocus=true;context.document.activeElement=player;},
+  blur(){context.document.activeElement=null;ruffleHasFocus=false;},
+  dispatchEvent:e=>{events.push(e);if(ruffleHasFocus)e.preventDefault();},ruffle:()=>({load:async()=>{},
     suspend:()=>suspended++,resume:()=>resumed++})};
 const game={style:{},appendChild(){},getBoundingClientRect:()=>rect};
-class Event { constructor(type,options){this.type=type;Object.assign(this,options);} }
+class Event {
+  constructor(type,options){this.type=type;this.defaultPrevented=false;Object.assign(this,options);}
+  preventDefault(){this.defaultPrevented=true;}
+}
 const context = {console,innerWidth:1000,innerHeight:500,PointerEvent:Event,KeyboardEvent:Event,
   LastStand2Host:{reportPhase:phase=>phases.push(phase)},
   document:{hidden:false,getElementById:id=>id==='game'?game:{remove(){}},
@@ -89,6 +99,38 @@ const filtered=type=>events.filter(e=>e.type===type);
   assert.equal(filtered('keyup').at(-1).code,'KeyD');
   assert.equal(filtered('pointerup').length,1);
   assert.deepEqual(phases,['combat','menu']);
+  // Android may leave DOM focus intact while Ruffle's internal focus is lost.
+  // The old soft focus() call alone cannot deliver these key transitions.
+  events.length=0; ruffleHasFocus=false; context.document.activeElement=player;
+  key('down',true,'stick');
+  assert.equal(filtered('keydown').length,2);
+  assert.equal(filtered('keydown')[0].defaultPrevented,false);
+  assert.equal(filtered('keydown')[1].defaultPrevented,true);
+  assert.equal(ruffleHasFocus,true);
+  key('down',false,'stick'); assert.equal(filtered('keyup').length,1);
+  // A pointer leave must be followed by another enter even on the same canvas.
+  const entered=filtered('pointerenter').length;
+  canvasHooks.pointerleave();
+  context.tls2Aim(0.4,0.5);
+  assert.equal(filtered('pointerenter').length,entered+1);
+  context.tls2Aim(0.41,0.5);
+  assert.equal(filtered('pointerenter').length,entered+1);
+  canvasHooks.pointercancel(); ruffleHasFocus=false;
+  context.tls2Aim(0.42,0.5);
+  assert.equal(ruffleHasFocus,true);
+  assert.equal(filtered('pointermove').at(-1).defaultPrevented,true);
+  key('fire',true,'rightTrigger'); key('fire',false,'rightTrigger');
+  assert.equal(filtered('pointerdown').at(-1).defaultPrevented,true);
+  // A still-connected old canvas can be hidden after a renderer change.
+  // Route to the currently visible canvas instead of trusting connectivity.
+  const oldRect=canvas.getBoundingClientRect;
+  canvas.isConnected=true; canvas.getBoundingClientRect=()=>({width:0,height:0});
+  let replacementMoves=0;
+  const replacement={...canvas,getBoundingClientRect:oldRect,
+    dispatchEvent:e=>{if(e.type==='pointermove')replacementMoves++;e.preventDefault();}};
+  canvases=[canvas,replacement]; context.tls2Aim(0.43,0.5);
+  assert.equal(replacementMoves,1);
+  canvas.getBoundingClientRect=oldRect; canvases=[canvas];
   // Raster budget is in physical pixels, independent of Android display density.
   context.devicePixelRatio=2;
   context.tls2SetRenderResolution(0);
