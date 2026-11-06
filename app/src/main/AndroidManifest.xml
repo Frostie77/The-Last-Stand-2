@@ -1,0 +1,23 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- GitHub release metadata only. The game WebView remains offline. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:label="The Last Stand 2"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher"
+        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        android:hardwareAccelerated="true">
+        <activity
+            android:name=".MainActivity"
+            android:screenOrientation="landscape"
+            android:exported="true"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,73 @@
+name: Android development builds
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify controller profile
+        run: python3 tests/test_control_profile.py
+      - name: Verify pointer, keyboard ownership and lifecycle
+        run: node tests/test_input.cjs
+      - name: Verify stable updater
+        run: python3 tests/test_updates.py
+      - name: Install Android 35
+        run: "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager 'platforms;android-35' 'build-tools;35.0.0'"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.11.1
+      - name: Retrieve pinned Ruffle
+        run: |
+          curl --fail --location --silent --show-error https://registry.npmjs.org/@ruffle-rs/ruffle/-/ruffle-0.7.1.tgz -o /tmp/tls2-ruffle.tgz
+          echo 'dc9e7407549a91accc41a14932b0b9d9a9d51a3742ce6f020888c8a76682b157  /tmp/tls2-ruffle.tgz' | sha256sum -c -
+          mkdir -p /tmp/tls2-ruffle app/src/main/assets/www/ruffle
+          tar -xzf /tmp/tls2-ruffle.tgz -C /tmp/tls2-ruffle
+          cp -R /tmp/tls2-ruffle/package/. app/src/main/assets/www/ruffle/
+      - name: Build and test Android host and shared frontend
+        run: gradle --no-daemon :frostfrontend:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+      - name: Verify identity and game-free APK
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import hashlib, json, os, subprocess
+          aapt = str(Path(os.environ['ANDROID_HOME']) / 'build-tools/35.0.0/aapt')
+          hashes = json.loads(Path('ruffle-0.7.1.sha256.json').read_text())
+          for variant in ('debug', 'release'):
+              apk = next(Path('app/build/outputs/apk', variant).glob('*.apk'))
+              badging = subprocess.check_output([aapt,'dump','badging',str(apk)],text=True)
+              assert "name='io.github.frostie77.laststand2'" in badging
+              assert "versionCode='1'" in badging
+              assert "application-label:'The Last Stand 2'" in badging
+              assert "sdkVersion:'26'" in badging
+              with ZipFile(apk) as z:
+                  assert not any(n.lower().endswith('.swf') for n in z.namelist())
+                  assert z.read('assets/www/index.html') == Path('app/src/main/assets/www/index.html').read_bytes()
+                  for name, digest in hashes.items():
+                      assert hashlib.sha256(z.read('assets/www/ruffle/' + name)).hexdigest() == digest, name
+          print('PASS: Debug/Release identity, HTML, pinned runtime and no bundled SWF.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: The-Last-Stand-2-Android-Debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Android-test-results
+          path: '**/build/reports/tests/'

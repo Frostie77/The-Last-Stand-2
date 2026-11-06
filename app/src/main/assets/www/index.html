@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>The Last Stand 2</title>
+<style>
+html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#000; color:#fff; font-family:sans-serif; touch-action:none; }
+#stage { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+#game { width:min(100vw, calc(100vh * 40 / 21)); height:min(100vh, calc(100vw * 21 / 40)); transform-origin:center center; }
+ruffle-player { display:block; width:100%; height:100%; }
+#status { position:absolute; left:20px; bottom:20px; color:#ddd; font-size:14px; pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="stage"><div id="game"></div></div>
+<div id="status">Starting The Last Stand 2…</div>
+<script>
+window.RufflePlayer = window.RufflePlayer || {};
+window.RufflePlayer.config = {
+  autoplay:'on', unmuteOverlay:'visible', letterbox:'on', contextMenu:'off',
+  allowScriptAccess:false, allowNetworking:'all', publicPath:'ruffle/',
+  quality:'high', scale:'showAll', forceScale:true
+};
+let player, tls2Ready = false;
+let tls2MenuPaused = false, tls2BackgroundPaused = false, tls2RufflePaused = false;
+let tls2DisplayMode = 'original';
+let aimX = 0.5, aimY = 0.5, pointerCanvas = null;
+const sources = Object.create(null);
+const keys = {
+  up:{key:'w',code:'KeyW',keyCode:87},
+  down:{key:'s',code:'KeyS',keyCode:83},
+  left:{key:'a',code:'KeyA',keyCode:65},
+  right:{key:'d',code:'KeyD',keyCode:68},
+  reload:{key:'r',code:'KeyR',keyCode:82},
+  swap:{key:' ',code:'Space',keyCode:32},
+  pause:{key:'Escape',code:'Escape',keyCode:27}
+};
+const clamp = value => Math.max(0, Math.min(1, Number(value)));
+const fireHeld = () => !!(sources.fire && sources.fire.size);
+
+function canvasForPointer() {
+  if (!player || !player.shadowRoot) return null;
+  return Array.from(player.shadowRoot.querySelectorAll('canvas'))
+    .filter(c => c.getBoundingClientRect().width > 0 && c.getBoundingClientRect().height > 0)
+    .sort((a,b) => b.getBoundingClientRect().width * b.getBoundingClientRect().height -
+                   a.getBoundingClientRect().width * a.getBoundingClientRect().height)[0] || null;
+}
+
+// Match the proven Arcane bridge: Ruffle listens on its shadow canvas and
+// reads untransformed canvas-local offsets, including in Stretch mode.
+function sendPointer(type, down) {
+  const canvas = canvasForPointer();
+  if (!canvas) return false;
+  const r = canvas.getBoundingClientRect();
+  const x = Math.max(r.left + 1, Math.min(r.right - 1, aimX * innerWidth));
+  const y = Math.max(r.top + 1, Math.min(r.bottom - 1, aimY * innerHeight));
+  const options = {
+    bubbles:true, composed:true, cancelable:true, pointerType:'mouse',
+    pointerId:10, isPrimary:true, clientX:x, clientY:y, screenX:x, screenY:y,
+    button:type === 'pointermove' ? -1 : 0, buttons:down ? 1 : 0, pressure:down ? 0.5 : 0
+  };
+  if (pointerCanvas !== canvas) {
+    pointerCanvas = canvas;
+    canvas.dispatchEvent(new PointerEvent('pointerenter', options));
+  }
+  const event = new PointerEvent(type, options);
+  Object.defineProperties(event, {
+    offsetX:{configurable:true, value:(x - r.left) * canvas.offsetWidth / Math.max(1,r.width)},
+    offsetY:{configurable:true, value:(y - r.top) * canvas.offsetHeight / Math.max(1,r.height)}
+  });
+  canvas.dispatchEvent(event);
+  return true;
+}
+
+window.tls2Aim = (nx, ny) => {
+  if (!tls2Ready || tls2MenuPaused || tls2BackgroundPaused ||
+      !Number.isFinite(Number(nx)) || !Number.isFinite(Number(ny))) return;
+  aimX = clamp(nx); aimY = clamp(ny);
+  sendPointer('pointermove', fireHeld());
+};
+
+function sendKey(id, down) {
+  if (id === 'fire') { sendPointer(down ? 'pointerdown' : 'pointerup', down); return; }
+  const spec = keys[id];
+  player.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', {
+    key:spec.key, code:spec.code, keyCode:spec.keyCode, which:spec.keyCode,
+    bubbles:true, composed:true, cancelable:true
+  }));
+}
+
+window.tls2Key = (id, pressed, source) => {
+  if (id === 'select') id = 'fire';
+  if (!player || !tls2Ready || (!keys[id] && id !== 'fire')) return;
+  if (pressed && (tls2MenuPaused || tls2BackgroundPaused)) return;
+  if (!sources[id]) sources[id] = new Set();
+  const wasDown = sources[id].size > 0;
+  if (pressed) sources[id].add(source); else sources[id].delete(source);
+  const nowDown = sources[id].size > 0;
+  if (wasDown === nowDown) return;
+  player.focus();
+  if (id === 'fire' && nowDown) sendPointer('pointermove', false);
+  sendKey(id, nowDown);
+};
+
+window.tls2ClearKeys = () => {
+  for (const [id, holders] of Object.entries(sources)) {
+    if (!holders.size) continue;
+    holders.clear();
+    if (player) sendKey(id, false);
+  }
+};
+
+// Touchscreen coordinates are normalized to the entire Android view, exactly
+// like the controller cursor. A movement finger can stay held independently.
+window.tls2TouchPointer = (kind, nx, ny) => {
+  if (kind === 'cancel') { window.tls2Key('fire',false,'touchAim'); return; }
+  window.tls2Aim(nx,ny);
+  if (kind === 'down') window.tls2Key('fire',true,'touchAim');
+  if (kind === 'up') window.tls2Key('fire',false,'touchAim');
+};
+
+function syncRufflePause() {
+  const paused = tls2MenuPaused || tls2BackgroundPaused;
+  if (!tls2Ready || !player || tls2RufflePaused === paused) return;
+  if (paused) player.ruffle().suspend(); else player.ruffle().resume();
+  tls2RufflePaused = paused;
+  if (!paused) player.focus();
+}
+window.tls2SetMenuPaused = value => {
+  if (value) window.tls2ClearKeys();
+  tls2MenuPaused = !!value; syncRufflePause();
+};
+window.tls2SetBackgroundPaused = value => {
+  if (value) window.tls2ClearKeys();
+  tls2BackgroundPaused = !!value; syncRufflePause();
+};
+window.tls2SetDisplayMode = mode => {
+  tls2DisplayMode = mode === 'stretch' ? 'stretch' : 'original';
+  const game = document.getElementById('game');
+  game.style.transform = '';
+  if (tls2DisplayMode === 'stretch') {
+    const box = game.getBoundingClientRect();
+    if (box.width && box.height)
+      game.style.transform = 'scale(' + innerWidth / box.width + ',' + innerHeight / box.height + ')';
+  }
+};
+window.addEventListener('resize', () => window.tls2SetDisplayMode(tls2DisplayMode));
+document.addEventListener('visibilitychange', () => window.tls2SetBackgroundPaused(document.hidden));
+window.addEventListener('blur', () => window.tls2ClearKeys());
+window.addEventListener('load', async () => {
+  const status = document.getElementById('status');
+  try {
+    player = window.RufflePlayer.newest().createPlayer();
+    document.getElementById('game').appendChild(player);
+    await player.ruffle().load({url:'/game/the-last-stand-2.swf', allowNetworking:'all', allowScriptAccess:false, quality:'high'});
+    tls2Ready = true;
+    status.remove();
+    window.tls2SetDisplayMode(tls2DisplayMode);
+    syncRufflePause();
+    player.focus();
+  } catch (error) {
+    status.textContent = 'Game load failed: ' + String(error);
+    console.error('LastStand2 load failed', error);
+  }
+});
+</script>
+<script src="ruffle/ruffle.js"></script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'io.github.frostie77.laststand2'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'io.github.frostie77.laststand2'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+    }
+    buildTypes {
+        debug { versionNameSuffix '-dev' }
+        release { minifyEnabled false }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    androidResources {
+        noCompress += ['swf', 'wasm']
+    }
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.13.0'
+    implementation project(':frostfrontend')
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+}
+
+tasks.withType(Test).configureEach {
+    testLogging { events 'failed'; exceptionFormat 'full' }
+}

@@ -1,0 +1,3 @@
+[submodule "third_party/FrostFrontend"]
+	path = third_party/FrostFrontend
+	url = https://github.com/Frostie77/FrostFrontend.git
