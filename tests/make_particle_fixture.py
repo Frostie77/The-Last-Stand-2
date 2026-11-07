@@ -46,7 +46,7 @@ def register(name):
     return var('__' + name) + var('_root') + push(name) + push(3) + external + push('addCallback') + b'\x52\x17'
 
 
-def production_function():
+def production_actions():
     # Compile the same Java emitter used when the APK serves the imported SWF.
     with tempfile.TemporaryDirectory(prefix='tls2-particle-code-') as directory:
         work = Path(directory)
@@ -59,6 +59,7 @@ public class ParticleFixtureCode {
   String[] names={CONSTANTS};
   for(int i=0;i<names.length;i++) pool.put(names[i],i);
   Files.write(Path.of(args[0]),LastStand2SceneMarker.particleFunction(pool));
+  Files.write(Path.of(args[1]),LastStand2SceneMarker.followReticle());
  }
 }'''.replace('CONSTANTS', constants)
         source = work / 'ParticleFixtureCode.java'
@@ -67,12 +68,14 @@ public class ParticleFixtureCode {
                         str(ROOT / 'app/src/main/java/io/github/frostie77/laststand2/LastStand2SceneMarker.java'),
                         str(ROOT / 'app/src/main/java/io/github/frostie77/laststand2/LastStand2LoopOptimizer.java')], check=True)
         binary = work / 'particle.bin'
-        subprocess.run(['java', '-cp', str(work), 'io.github.frostie77.laststand2.ParticleFixtureCode', str(binary)], check=True)
+        follow = work / 'follow.bin'
+        subprocess.run(['java', '-cp', str(work), 'io.github.frostie77.laststand2.ParticleFixtureCode',
+                        str(binary), str(follow)], check=True)
         data = binary.read_bytes()
         length = int.from_bytes(data[1:3], 'little')
         end = data.index(0, 3) + 1
         header = b'fastMove\0' + data[end:3 + length]
-        return action(0x8e, header) + data[3 + length:]
+        return action(0x8e, header) + data[3 + length:], follow.read_bytes()
 
 
 def build(destination):
@@ -89,7 +92,17 @@ def build(destination):
     move_y += push('_y') + var('_y') + var('VertEnergy') + b'\x47\x1d'
     body = fade + rotation + horizontal + move_x + move_y
     reference = function('oldMove', var('this') + action(0x94, u16(len(body))) + body)
-    script = action(0x88, u16(len(NAMES)) + b''.join(n.encode() + b'\0' for n in NAMES)) + reference + production_function()
+    particle, follow = production_actions()
+    script = action(0x88, u16(len(NAMES)) + b''.join(n.encode() + b'\0' for n in NAMES)) + reference + particle
+    # Reproduce the game's initial drag and the subsequent one-time handoff.
+    script += push('aimer') + call(var('_root'), 'createEmptyMovieClip', ['aimer', 3]) + b'\x1d'
+    script += call(root('aimer'), 'startDrag', [1]) + b'\x17' + follow
+    cursor = member(root('aimer'), '_x')
+    for value in [member(root('aimer'), '_y'), root('_xmouse'), root('_ymouse')]:
+        cursor += push('|') + b'\x21' + value + b'\x21'
+    script += function('__reticleState', cursor + b'\x3e') + register('reticleState')
+    freeze = root('aimer') + push('onEnterFrame') + b'\x3a\x17'
+    script += function('__reticleFreeze', freeze) + register('reticleFreeze')
     initialize = b''
     for name, depth, implementation in [('oldRef', 1, 'oldMove'), ('fastRef', 2, 'fastMove')]:
         initialize += push(name) + call(var('_root'), 'createEmptyMovieClip', [name + 'Display', depth]) + b'\x1d'

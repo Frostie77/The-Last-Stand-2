@@ -19,6 +19,24 @@ const runtime=process.env.TLS2_RUFFLE_PATH||path.join(root,'app/src/main/assets/
  try{
   await page.goto(origin+'/assets/www/index.html');
   await page.waitForFunction(()=>typeof document.querySelector('ruffle-player')?.particleState==='function',null,{timeout:30000});
+  const readReticle=()=>page.evaluate(()=>document.querySelector('ruffle-player').reticleState().split('|').map(Number));
+  for(const [x,y] of [[.2,.3],[.65,.75]]) {
+   await page.evaluate(([x,y])=>window.tls2Aim(x,y),[x,y]);
+   await page.waitForFunction(()=>{
+    const [x,y,mouseX,mouseY]=document.querySelector('ruffle-player').reticleState().split('|').map(Number);
+    return Math.abs(x-mouseX)<=.1 && Math.abs(y-mouseY)<=.1;
+   });
+  }
+  const position=(await readReticle()).slice(0,2);
+  await page.evaluate(()=>{
+   document.querySelector('ruffle-player').reticleFreeze();
+   window.tls2Aim(.45,.4);
+  });
+  await page.waitForTimeout(150);
+  const frozen=await readReticle();
+  assert.deepEqual(frozen.slice(0,2),position,'The original drag must be stopped');
+  assert.notDeepEqual(frozen.slice(2),position,'The stage pointer must still move');
+  console.log('PASS: reticle follows the stage pointer without retaining a Flash drag.');
   let updates=0;
   for(const kind of ['bloodParticle','flameParticle']) for(const values of [[8,180,.35,4,9,-5],[9,0,1.5,-7,-4,2],[4,45,-.4,30,6,0],[100,360,0,0,0,0],[0,-90,.3,400,10,-3],[0,180,.35,4,0,-5]]){
    await page.evaluate(v=>document.querySelector('ruffle-player').particleReset(...v),[...values,kind]);

@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.zip.DeflaterOutputStream;
@@ -75,11 +76,15 @@ final class LastStand2SceneMarker {
                             int functionEnd = recordEnd + codeSize;
                             if (functionEnd > end) return original;
                             if ("showCrosshairs".equals(name) || "hideCrosshairs".equals(name)) {
-                                byte[] notify = notification("showCrosshairs".equals(name) ? "combat" : "menu");
-                                if (codeSize + notify.length > 65535) return original;
+                                boolean combat = "showCrosshairs".equals(name);
+                                byte[] notify = notification(combat ? "combat" : "menu");
+                                byte[] follow = combat ? new byte[0] : followReticle();
+                                int updatedSize = codeSize + notify.length + follow.length;
+                                if (updatedSize > 65535) return original;
                                 actions.write(movie, actionStart, codeSizeAt - actionStart);
-                                word(actions, codeSize + notify.length);
+                                word(actions, updatedSize);
                                 actions.write(notify);
+                                actions.write(follow);
                                 actions.write(movie, recordEnd, codeSize);
                                 hooks++;
                             } else if ("moveParticle".equals(name)) {
@@ -189,6 +194,47 @@ final class LastStand2SceneMarker {
     }
     private static void integer(ByteArrayOutputStream out,int value) {
         out.write(0x96);word(out,5);out.write(7);dword(out,value);
+    }
+
+    static byte[] followReticle() throws IOException {
+        // The original setup calls hideCrosshairs immediately after
+        // aimer.startDrag(true). Stop that drag before the next player tick.
+        // Only install once, even when the game changes scenes.
+        Map<String, Integer> constants = Collections.emptyMap();
+        ActionCode follow = new ActionCode(constants);
+        integer(follow.out, 0);
+        rootPath(follow.out, "aimer");
+        literal(follow.out, "stopDrag");
+        follow.op(0x52, 0x17); // CallMethod, Pop
+
+        ActionCode move = new ActionCode(constants);
+        // Set the clip's x/y from the root's xmouse/ymouse. The reticle is
+        // attached to the root, so all four values use the same coordinates.
+        move.push(R1, 0, R2, 20); move.op(0x22, 0x23);
+        move.push(R1, 1, R2, 21); move.op(0x22, 0x23, 0);
+        rootPath(follow.out, "aimer");
+        literal(follow.out, "onEnterFrame");
+        follow.out.write(move.function("", 3, 0x69)); // Preload this and root.
+        follow.op(0x4f); // SetMember
+        integer(follow.out, 0);
+        rootPath(follow.out, "aimer");
+        literal(follow.out, "onEnterFrame");
+        follow.op(0x52, 0x17);
+
+        ActionCode install = new ActionCode(constants);
+        rootPath(install.out, "aimer.onEnterFrame");
+        install.op(0x44); // TypeOf
+        literal(install.out, "function");
+        install.op(0x66); // StrictEquals
+        install.branchPast(follow.bytes());
+
+        ActionCode check = new ActionCode(constants);
+        rootPath(check.out, "aimer");
+        check.op(0x44);
+        literal(check.out, "movieclip");
+        check.op(0x66, 0x12); // StrictEquals, Not
+        check.branchPast(install.bytes());
+        return check.bytes();
     }
 
     private static byte[] proximityFunction(byte[] movie, int bodyAt, Map<String, Integer> pool)
