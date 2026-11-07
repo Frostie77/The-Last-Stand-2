@@ -54,6 +54,7 @@
     const result = {before:d.before,after:state(),observedSeconds:round((performance.now()-d.started)/1000),
       canvas:canvas?[canvas.width,canvas.height]:null, viewport:[innerWidth,innerHeight,devicePixelRatio],
       configuredQuality:p?.ruffle().loadedConfig?.quality, swfFrameRate:p?.ruffle().metadata?.frameRate, renderer,
+      preparedCombatSounds:window.tls2PreparedCombatSounds || 0,
       pageFrameIntervals:{count,medianMs:count?round(sorted[Math.floor(count/2)]):null,
         p95Ms:count?round(sorted[Math.min(count-1,Math.floor(count*.95))]):null,
         maxMs:count?round(sorted[count-1]):null,over50ms:sorted.filter(n=>n>50).length,over100ms:sorted.filter(n=>n>100).length},

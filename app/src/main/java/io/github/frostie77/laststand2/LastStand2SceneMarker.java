@@ -19,11 +19,10 @@ final class LastStand2SceneMarker {
     private LastStand2SceneMarker() {}
 
     static byte[] patch(InputStream source) throws IOException {
-        return patch(source, false);
+        return patch(read(source), false);
     }
 
-    static byte[] patch(InputStream source, boolean enableReloadTest) throws IOException {
-        byte[] original = read(source);
+    static byte[] patch(byte[] original, boolean enableReloadTest) {
         try {
             StringBuilder digest = new StringBuilder();
             for (byte b : MessageDigest.getInstance("SHA-256").digest(original))
@@ -328,7 +327,7 @@ final class LastStand2SceneMarker {
         out.write(0x83); word(out, args.length); out.write(args);
         return out.toByteArray();
     }
-    private static byte[] read(InputStream in) throws IOException {
+    static byte[] read(InputStream in) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] block = new byte[8192];
         int n;

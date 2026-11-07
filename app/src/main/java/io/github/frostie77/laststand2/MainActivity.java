@@ -173,8 +173,11 @@ public final class MainActivity extends Activity {
     private void startGame() {
         boolean debug = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         final byte[] gameBytes;
+        final boolean prepareCombatAudio;
         try (FileInputStream in = new FileInputStream(gameFile())) {
-            gameBytes = LastStand2SceneMarker.patch(in, debug);
+            byte[] original = LastStand2SceneMarker.read(in);
+            gameBytes = LastStand2SceneMarker.patch(original, debug);
+            prepareCombatAudio = gameBytes != original;
         } catch (IOException error) {
             showError("Unable to load game: " + error.getMessage());
             return;
@@ -213,8 +216,11 @@ public final class MainActivity extends Activity {
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
             .addPathHandler("/game/", path -> {
                 if (!SWF_NAME.equals(path.startsWith("/") ? path.substring(1) : path)) return null;
-                return new WebResourceResponse("application/x-shockwave-flash", null,
+                WebResourceResponse response = new WebResourceResponse("application/x-shockwave-flash", null,
                     new java.io.ByteArrayInputStream(gameBytes));
+                if (prepareCombatAudio) response.setResponseHeaders(
+                    java.util.Collections.singletonMap("X-Tls2-Combat-Audio", "1"));
+                return response;
             }).build();
         webView.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView view, String url) {

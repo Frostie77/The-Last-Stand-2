@@ -249,7 +249,9 @@ window.addEventListener('load', async () => {
     };
     game.appendChild(player);
     applyGameSize();
-    await player.ruffle().load({url:'/game/the-last-stand-2.swf', allowNetworking:'all', allowScriptAccess:true, quality:tls2Quality});
+    const url = '/game/the-last-stand-2.swf';
+    window.tls2PrepareCombatAudio?.(url);
+    await player.ruffle().load({url, allowNetworking:'all', allowScriptAccess:true, quality:tls2Quality});
     tls2Ready = true;
     status.remove();
     window.tls2SetDisplayMode(tls2DisplayMode);
@@ -261,6 +263,7 @@ window.addEventListener('load', async () => {
   }
 });
 </script>
+<script src="combat-audio.js"></script>
 <script src="ruffle/ruffle.js"></script>
 </body>
 </html>

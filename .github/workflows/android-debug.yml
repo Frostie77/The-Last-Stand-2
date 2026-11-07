@@ -42,6 +42,8 @@ jobs:
         run: node tests/test_input.cjs
       - name: Verify temporary performance probe
         run: node tests/test_performance_probe.cjs
+      - name: Verify combat sound preparation and fallback
+        run: node tests/test_combat_audio.cjs
       - name: Verify reload state capture and cleanup
         run: node tests/test_capture_probe.cjs
       - name: Verify stable updater
@@ -87,7 +89,8 @@ jobs:
               assert "sdkVersion:'26'" in badging
               with ZipFile(apk) as z:
                   assert not any(n.lower().endswith('.swf') for n in z.namelist())
-                  assert z.read('assets/www/index.html') == Path('app/src/main/assets/www/index.html').read_bytes()
+                  for name in ('index.html', 'combat-audio.js'):
+                      assert z.read('assets/www/' + name) == Path('app/src/main/assets/www', name).read_bytes()
                   for name, digest in hashes.items():
                       assert hashlib.sha256(z.read('assets/www/ruffle/' + name)).hexdigest() == digest, name
           print('PASS: Debug/Release identity, HTML, pinned runtime and no bundled SWF.')
