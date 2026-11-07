@@ -29,9 +29,13 @@ async function run({marked, bytes = original}) {
   });
   Object.defineProperty(originalResponse, 'url', {value:url});
   const fetch = async () => { fetches++; return originalResponse; };
+  const starts = [];
+  class AudioSource {
+    start(...args) { starts.push(args); return 'started'; }
+  }
   const context = {
     console:{warn(){}}, location:{href:'https://appassets.androidplatform.net/assets/www/index.html'},
-    Request, Response, Headers, URL, Blob, DecompressionStream, fetch,
+    Request, Response, Headers, URL, Blob, DecompressionStream, fetch, AudioBufferSourceNode:AudioSource,
     OfflineAudioContext: class {
       constructor(_, __, rate) { assert.equal(rate, 22050); }
       async decodeAudioData(encoded) {
@@ -50,16 +54,18 @@ async function run({marked, bytes = original}) {
   assert.equal(fetches, 2);
   assert.equal(context.fetch, fetch);
   assert.equal(result.url, url);
-  return {result, originalResponse, decodes, prepared:context.tls2PreparedCombatSounds};
+  return {result, originalResponse, decodes, prepared:context.tls2PreparedCombatSounds,
+    limiter:context.tls2CombatPeakLimiter, AudioSource, starts};
 }
 
 (async () => {
   const unknown = await run({marked:false});
   assert.equal(unknown.result, unknown.originalResponse);
   assert.equal(unknown.decodes, 0);
+  assert.equal(unknown.limiter, undefined);
   const malformed = await run({marked:true, bytes:original.subarray(0, 12)});
   assert.deepEqual(Buffer.from(await malformed.result.arrayBuffer()), original.subarray(0, 12));
-  const {result, decodes, prepared} = await run({marked:true});
+  const {result, decodes, prepared, limiter, AudioSource, starts} = await run({marked:true});
   const movie = Buffer.from(await result.arrayBuffer());
   assert.equal(prepared, 1);
   assert.equal(decodes, 2);
@@ -75,5 +81,16 @@ async function run({marked, bytes = original}) {
   assert.equal(movie.readUInt32LE(at + 9), 2);
   assert.deepEqual([0,1,2,3].map(i=>movie.readInt16LE(at + 13 + 2*i)), [16384,-16384,-32768,32767]);
   assert.deepEqual(movie.subarray(at + 21), Buffer.concat([sound(1212), sound(1271), end]));
+  assert.equal(limiter, true);
+  const source = new AudioSource();
+  const channels = [Float32Array.of(0, .5, 1.3, 4), Float32Array.of(0, -.5, -.65, -4)];
+  source.buffer = {numberOfChannels:2, getChannelData:index=>channels[index]};
+  assert.equal(source.start(12), 'started');
+  assert.deepEqual(starts, [[12]]);
+  assert.equal(channels[0][1], .5);
+  assert.equal(channels[1][1], -.5);
+  assert.ok(channels[0][2] > .8 && channels[0][2] < channels[0][3] && channels[0][3] < .94);
+  assert.equal(channels[1][2], -channels[0][2] / 2);
+  assert.equal(channels[1][3], -channels[0][3]);
   console.log('PASS: one-shot SWF fetch, PCM layout and delay, original URL and unsupported-clip fallback.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

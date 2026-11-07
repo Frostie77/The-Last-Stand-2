@@ -40,7 +40,7 @@ jobs:
           }
       - name: Verify pointer, keyboard ownership and lifecycle
         run: node tests/test_input.cjs
-      - name: Verify temporary performance probe
+      - name: Verify temporary performance and audio probes
         run: node tests/test_performance_probe.cjs
       - name: Verify combat sound preparation and fallback
         run: node tests/test_combat_audio.cjs

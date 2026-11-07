@@ -37,3 +37,37 @@ context.tls2MenuPaused=false;vm.runInContext(script,context);
 const newer=()=>{};context.tls2Aim=newer;context.__tls2PerformanceCapture.restore();
 assert.equal(context.tls2Aim,newer);assert.equal(frames.size,0);
 console.log('PASS: performance timing, original input delivery, exceptions, pause guard and complete restoration.');
+
+const audioScript=fs.readFileSync('tools/audio-probe.js','utf8');
+const deliveries=[];
+class AudioSource {
+ start(...args){deliveries.push(args);return 'started';}
+}
+class BufferSource extends AudioSource {}
+context.AudioBufferSourceNode=BufferSource;
+context.document.querySelector=()=>({tls2GameInputState:()=> 'M249|80'});
+context.tls2PreparedCombatSounds=21;
+context.tls2MenuPaused=true;
+assert.throws(()=>vm.runInContext(audioScript,context),/close FrostFrontend/);
+context.tls2MenuPaused=false;
+vm.runInContext(audioScript,context);
+const source=new BufferSource();
+source.context={state:'running',currentTime:1};
+source.buffer={length:4,duration:.05,numberOfChannels:2,
+ getChannelData:channel=>channel?[0,-1.25,0,.8]:[0,.2,1.125,0]};
+assert.equal(source.start(1.01),'started');
+source.context.currentTime=1.04;source.start(1.06);
+source.context.currentTime=1.13;source.start(1.13);
+source.start(1.14,0); // A sound scheduled with an offset is outside the mix probe.
+source.context.currentTime=1.20;
+const audio=context.__tls2AudioCapture.finish();
+assert.deepEqual(deliveries,[[1.01],[1.06],[1.13],[1.14,0]]);
+assert.equal(audio.buffers,3);assert.equal(audio.bufferFrames[4],3);
+assert.equal(audio.sampledValues,24);assert.equal(audio.peak,1.25);
+assert.equal(audio.aboveFullScale,6);assert.equal(audio.scheduledGaps,1);
+assert.equal(audio.maxGapMs,20);assert.equal(audio.tailGapMs,20);
+assert.equal(audio.before.weapon,'M249');assert.equal(audio.preparedCombatSounds,21);
+assert.equal(BufferSource.prototype.start,AudioSource.prototype.start);
+assert.equal(Object.hasOwn(BufferSource.prototype,'start'),false);
+assert.equal(context.__tls2AudioCapture,undefined);
+console.log('PASS: mixed audio peaks, scheduling gaps, original start calls and cleanup.');

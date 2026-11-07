@@ -7,6 +7,32 @@
   ]);
   const defineSoundTag = 14;
 
+  function installPeakLimiter() {
+    if (window.tls2CombatPeakLimiter || typeof AudioBufferSourceNode !== 'function') return;
+    const prototype = AudioBufferSourceNode.prototype;
+    const start = prototype.start;
+    // The pinned mixer schedules complete stereo buffers with a start time.
+    // Limit their summed peaks before Web Audio acquires the buffer data.
+    prototype.start = function(when) {
+      const buffer = this.buffer;
+      if (arguments.length === 1 && Number.isFinite(when) && buffer?.numberOfChannels === 2) {
+        const left = buffer.getChannelData(0), right = buffer.getChannelData(1);
+        const knee = 0.8, room = 0.14;
+        for (let i = 0; i < left.length; i++) {
+          const peak = Math.max(Math.abs(left[i]), Math.abs(right[i]));
+          const excess = peak - knee;
+          if (excess > 0) {
+            const gain = (knee + room * excess / (room + excess)) / peak;
+            left[i] *= gain;
+            right[i] *= gain;
+          }
+        }
+      }
+      return start.apply(this, arguments);
+    };
+    window.tls2CombatPeakLimiter = true;
+  }
+
   async function decodeSound(sound, contexts) {
     const flags = sound.getUint8(2);
     const rateCode = (flags >> 2) & 3;
@@ -111,7 +137,10 @@
 
       const original = await response.arrayBuffer();
       let prepared = original;
-      try { prepared = await prepareMovie(original); }
+      try {
+        prepared = await prepareMovie(original);
+        if (prepared !== original) installPeakLimiter();
+      }
       catch (error) { console.warn('Combat audio preparation failed', error); }
       const headers = new Headers(response.headers);
       headers.delete('Content-Encoding');

@@ -2,11 +2,14 @@ param(
     [ValidateRange(8, 30)][int]$CaptureSeconds = 12,
     [string]$WebSocketUrl,
     [switch]$Performance,
+    [switch]$Audio,
     [switch]$SawnOff,
     [string]$OutputDirectory = (Join-Path $PSScriptRoot '.diagnostics')
 )
 $ErrorActionPreference = 'Stop'
-if ($Performance -and $SawnOff) { throw 'Use either -Performance or -SawnOff for one capture.' }
+if (($Performance -and $SawnOff) -or ($Audio -and ($Performance -or $SawnOff))) {
+    throw 'Use one of -Performance, -Audio or -SawnOff for a capture.'
+}
 $tls2Adb = $null
 if ($env:LOCALAPPDATA) { $tls2Adb = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe' }
 $tls2ForwardPort = $null
@@ -248,6 +251,17 @@ try {
         Invoke-Tls2PerformanceCapture
         return
     }
+    if ($Audio) {
+        $probe = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'toolsaudio-probe.js') -Raw
+        Invoke-Tls2Evaluation $probe | Out-Null
+        Write-Host "Capturing audio for $CaptureSeconds seconds. Keep shooting with FrostFrontend closed."
+        Start-Sleep -Seconds $CaptureSeconds
+        $tls2Report = Invoke-Tls2Evaluation 'window.__tls2AudioCapture.finish()'
+        Write-Host 'AUDIO CAPTURE:'
+        $tls2Report | ConvertTo-Json -Depth 8 -Compress
+        Write-Host 'Paste the AUDIO CAPTURE output and say whether you heard crackling or cutouts.'
+        return
+    }
     $tls2Prepare = if ($SawnOff) { 'true' } else { 'false' }
     $tls2Before = Invoke-Tls2Evaluation "$tls2InstallProbe($tls2Prepare)"
     if ($tls2Before.error) { throw $tls2Before.error }
@@ -277,6 +291,8 @@ try {
                     try { Invoke-Tls2Command 'Performance.disable' @{} | Out-Null } catch {}
                 }
                 try { Invoke-Tls2Evaluation 'window.__tls2PerformanceCapture?.restore()' | Out-Null } catch {}
+            } elseif ($Audio) {
+                try { Invoke-Tls2Evaluation 'window.__tls2AudioCapture?.restore()' | Out-Null } catch {}
             } else {
                 try { Invoke-Tls2Evaluation 'window.__tls2InputCapture?.restore()' | Out-Null } catch {}
             }

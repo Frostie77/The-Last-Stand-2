@@ -30,6 +30,8 @@ def fixture_result(request):
             assert '__tls2PerformanceCapture' in expression
             value = {'before': {'phase': 'combat'}, 'pageFrameIntervals': {'maxMs': 220},
                      'aim': {'calls': 55}} if '.finish()' in expression else {'phase': 'combat'}
+        elif '__tls2AudioCapture' in expression:
+            value = {'buffers': 80, 'peak': 0.89, 'scheduledGaps': 2} if '.finish()' in expression else None
         elif 'return d.before' in expression:
             assert expression.endswith(('})(false)', '})(true)')), expression[-40:]
             value = ({'error': 'Enter an active fight'} if expression.endswith('})(true)')
@@ -162,6 +164,18 @@ def main():
         assert not FAILURES, FAILURES
         assert REQUESTS == ['Runtime.evaluate', 'Runtime.evaluate'], REQUESTS
         print('PASS: the sawn-off option reports setup errors and cleans up before capture.')
+        REQUESTS.clear()
+        run = subprocess.run([args.powershell, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                              '-File', str(ROOT / 'capture-controller-input.ps1'), '-Audio',
+                              '-WebSocketUrl', url, '-CaptureSeconds', '8'],
+                             capture_output=True, text=True, timeout=25)
+        assert run.returncode == 0, run.stdout + run.stderr
+        assert not FAILURES, FAILURES
+        lines = run.stdout.splitlines()
+        report = json.loads(lines[lines.index('AUDIO CAPTURE:') + 1])
+        assert report == {'buffers': 80, 'peak': 0.89, 'scheduledGaps': 2}, report
+        assert REQUESTS == ['Runtime.evaluate', 'Runtime.evaluate', 'Runtime.evaluate'], REQUESTS
+        print('PASS: Windows audio capture reports and cleans up without starting the CPU profiler.')
         PERFORMANCE_CASE = True
         command = [args.powershell, '-NoProfile', '-ExecutionPolicy', 'Bypass',
                    '-File', str(ROOT / 'capture-controller-input.ps1'), '-Performance',
