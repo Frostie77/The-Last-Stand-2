@@ -60,6 +60,9 @@ public class ParticleFixtureCode {
   for(int i=0;i<names.length;i++) pool.put(names[i],i);
   Files.write(Path.of(args[0]),LastStand2SceneMarker.particleFunction(pool));
   Files.write(Path.of(args[1]),LastStand2SceneMarker.followReticle());
+  Files.write(Path.of(args[2]),LastStand2SceneMarker.combatPointer(true));
+  Files.write(Path.of(args[3]),LastStand2SceneMarker.combatPointer(false));
+  Files.write(Path.of(args[4]),LastStand2SceneMarker.stageReleaseOutside(true));
  }
 }'''.replace('CONSTANTS', constants)
         source = work / 'ParticleFixtureCode.java'
@@ -69,13 +72,48 @@ public class ParticleFixtureCode {
                         str(ROOT / 'app/src/main/java/io/github/frostie77/laststand2/LastStand2LoopOptimizer.java')], check=True)
         binary = work / 'particle.bin'
         follow = work / 'follow.bin'
+        enter = work / 'enter.bin'
+        leave = work / 'leave.bin'
+        release = work / 'release.bin'
         subprocess.run(['java', '-cp', str(work), 'io.github.frostie77.laststand2.ParticleFixtureCode',
-                        str(binary), str(follow)], check=True)
+                        str(binary), str(follow), str(enter), str(leave), str(release)], check=True)
         data = binary.read_bytes()
         length = int.from_bytes(data[1:3], 'little')
         end = data.index(0, 3) + 1
         header = b'fastMove\0' + data[end:3 + length]
-        return action(0x8e, header) + data[3 + length:], follow.read_bytes()
+        return (action(0x8e, header) + data[3 + length:], follow.read_bytes(),
+                enter.read_bytes(), leave.read_bytes(), release.read_bytes())
+
+
+def pointer_fixture(follow, enter, leave, release):
+    script = call(var('_root'), 'createEmptyMovieClip', ['aimer', 100]) + b'\x17'
+    script += call(root('aimer'), 'startDrag', [1]) + b'\x17' + follow
+    for clip, depth, x1, y1, x2, y2 in [('stageBG', 4, 0, 0, 800, 420), ('options', 5, 7, 395, 35, 415)]:
+        script += call(var('_root'), 'createEmptyMovieClip', [clip, depth]) + b'\x17'
+        script += call(root(clip), 'beginFill', [0, 100]) + b'\x17'
+        script += call(root(clip), 'moveTo', [x1, y1]) + b'\x17'
+        for x, y in [(x2, y1), (x2, y2), (x1, y2), (x1, y1)]:
+            script += call(root(clip), 'lineTo', [x, y]) + b'\x17'
+        script += call(root(clip), 'endFill', []) + b'\x17'
+    for clip, event, count in [('stageBG', 'onPress', 'pressed'), ('stageBG', 'onRelease', 'released'),
+                               ('options', 'onRelease', 'opened')]:
+        script += push(count) + push(0) + b'\x1d'
+        increment = push(count) + var(count) + b'\x50\x1d'
+        script += root(clip) + push(event) + function('', increment) + b'\x4f'
+    script += release + enter
+    cursor = member(root('aimer'), '_x')
+    for value in [member(root('aimer'), '_y'), root('_xmouse'), root('_ymouse')]:
+        cursor += push('|') + b'\x21' + value + b'\x21'
+    script += function('__reticleState', cursor + b'\x3e') + register('reticleState')
+    freeze = root('aimer') + push('onEnterFrame') + b'\x3a\x17'
+    script += function('__reticleFreeze', freeze) + register('reticleFreeze')
+    state = var('pressed')
+    for field in [var('released'), var('opened'), member(root('aimer'), 'onPress') + b'\x44',
+                  member(root('stageBG'), 'onReleaseOutside') + b'\x44']:
+        state += push('|') + b'\x21' + field + b'\x21'
+    script += function('__pointerState', state + b'\x3e') + register('pointerState')
+    script += function('__pointerMenu', leave) + register('pointerMenu')
+    return script
 
 
 def build(destination):
@@ -92,17 +130,9 @@ def build(destination):
     move_y += push('_y') + var('_y') + var('VertEnergy') + b'\x47\x1d'
     body = fade + rotation + horizontal + move_x + move_y
     reference = function('oldMove', var('this') + action(0x94, u16(len(body))) + body)
-    particle, follow = production_actions()
+    particle, follow, enter, leave, release = production_actions()
     script = action(0x88, u16(len(NAMES)) + b''.join(n.encode() + b'\0' for n in NAMES)) + reference + particle
-    # Reproduce the game's initial drag and the subsequent one-time handoff.
-    script += push('aimer') + call(var('_root'), 'createEmptyMovieClip', ['aimer', 3]) + b'\x1d'
-    script += call(root('aimer'), 'startDrag', [1]) + b'\x17' + follow
-    cursor = member(root('aimer'), '_x')
-    for value in [member(root('aimer'), '_y'), root('_xmouse'), root('_ymouse')]:
-        cursor += push('|') + b'\x21' + value + b'\x21'
-    script += function('__reticleState', cursor + b'\x3e') + register('reticleState')
-    freeze = root('aimer') + push('onEnterFrame') + b'\x3a\x17'
-    script += function('__reticleFreeze', freeze) + register('reticleFreeze')
+    script += pointer_fixture(follow, enter, leave, release)
     initialize = b''
     for name, depth, implementation in [('oldRef', 1, 'oldMove'), ('fastRef', 2, 'fastMove')]:
         initialize += push(name) + call(var('_root'), 'createEmptyMovieClip', [name + 'Display', depth]) + b'\x1d'

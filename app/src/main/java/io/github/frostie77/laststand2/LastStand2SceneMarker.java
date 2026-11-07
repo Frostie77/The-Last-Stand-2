@@ -38,7 +38,7 @@ final class LastStand2SceneMarker {
             int pos = 8 + (5 + 4 * ((movie[8] & 255) >>> 3) + 7) / 8 + 4;
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             out.write(movie, 0, pos);
-            int hooks = 0, particles = 0, loops = 0, proximityChecks = 0, diagnostics = 0;
+            int hooks = 0, fireHooks = 0, particles = 0, loops = 0, proximityChecks = 0, diagnostics = 0;
             while (pos + 2 <= movie.length) {
                 int start = pos, header = ushort(movie, pos);
                 pos += 2;
@@ -79,14 +79,24 @@ final class LastStand2SceneMarker {
                                 boolean combat = "showCrosshairs".equals(name);
                                 byte[] notify = notification(combat ? "combat" : "menu");
                                 byte[] follow = combat ? new byte[0] : followReticle();
-                                int updatedSize = codeSize + notify.length + follow.length;
+                                byte[] pointer = combatPointer(combat);
+                                int updatedSize = codeSize + notify.length + follow.length + pointer.length;
                                 if (updatedSize > 65535) return original;
                                 actions.write(movie, actionStart, codeSizeAt - actionStart);
                                 word(actions, updatedSize);
                                 actions.write(notify);
                                 actions.write(follow);
+                                actions.write(pointer);
                                 actions.write(movie, recordEnd, codeSize);
                                 hooks++;
+                            } else if ("fireButton".equals(name)) {
+                                if (codeSize != 86) return original;
+                                byte[] release = stageReleaseOutside(true);
+                                actions.write(movie, actionStart, codeSizeAt - actionStart);
+                                word(actions, codeSize + release.length);
+                                actions.write(movie, recordEnd, codeSize);
+                                actions.write(release);
+                                fireHooks++;
                             } else if ("moveParticle".equals(name)) {
                                 actions.write(particleFunction(pool));
                                 particles++;
@@ -120,7 +130,7 @@ final class LastStand2SceneMarker {
                 pos += size;
                 if (tag == 0) break;
             }
-            if (hooks != 2 || particles != 1 || loops != 3 || proximityChecks != 1 || diagnostics != 1)
+            if (hooks != 2 || fireHooks != 1 || particles != 1 || loops != 3 || proximityChecks != 1 || diagnostics != 1)
                 return original;
             byte[] patched = out.toByteArray();
             for (int i = 0; i < 4; i++) patched[4 + i] = (byte)(patched.length >>> (8 * i));
@@ -220,6 +230,7 @@ final class LastStand2SceneMarker {
         rootPath(follow.out, "aimer");
         literal(follow.out, "onEnterFrame");
         follow.op(0x52, 0x17);
+        follow.out.write(reticleHitArea());
 
         ActionCode install = new ActionCode(constants);
         rootPath(install.out, "aimer.onEnterFrame");
@@ -228,13 +239,101 @@ final class LastStand2SceneMarker {
         install.op(0x66); // StrictEquals
         install.branchPast(follow.bytes());
 
-        ActionCode check = new ActionCode(constants);
-        rootPath(check.out, "aimer");
+        return whenClipExists("aimer", install.bytes());
+    }
+
+    private static byte[] whenClipExists(String clip, byte[] actions) throws IOException {
+        ActionCode check = new ActionCode(Collections.emptyMap());
+        rootPath(check.out, clip);
         check.op(0x44);
         literal(check.out, "movieclip");
         check.op(0x66, 0x12); // StrictEquals, Not
-        check.branchPast(install.bytes());
+        check.branchPast(actions);
         return check.bytes();
+    }
+
+    private static byte[] reticleHitArea() throws IOException {
+        Map<String, Integer> constants = Collections.emptyMap();
+        ActionCode empty = new ActionCode(constants);
+        rootPath(empty.out, "aimer.__tls2EmptyHitArea");
+        empty.op(0x3e); // Return
+
+        ActionCode menu = new ActionCode(constants);
+        menu.push(R1, 21); menu.op(0x22); // Root _ymouse.
+        menu.push(380); menu.op(0x48); // Less
+        menu.branchPast(empty.bytes());
+
+        ActionCode getter = new ActionCode(constants);
+        // The bottom-left corner contains the Flash options button and its
+        // hover label. An empty hit area there lets Ruffle pick them normally.
+        getter.push(R1, 20); getter.op(0x22); // Root _xmouse.
+        getter.push(128); getter.op(0x48, 0x12); // Less, Not
+        getter.branchPast(menu.bytes());
+        rootPath(getter.out, "stageBG.onPress");
+        getter.op(0x44);
+        literal(getter.out, "function");
+        getter.op(0x66);
+        getter.branchPast(empty.bytes());
+        rootPath(getter.out, "stageBG");
+        getter.op(0x3e, 0);
+
+        ActionCode install = new ActionCode(constants);
+        integer(install.out, 0);
+        literal(install.out, "__tls2EmptyHitArea");
+        integer(install.out, 2);
+        rootPath(install.out, "aimer");
+        literal(install.out, "createEmptyMovieClip");
+        install.op(0x52, 0x17);
+        install.op(0x96); word(install.out, 1); install.op(2); // Null setter.
+        install.out.write(getter.function("", 2, 0x6a)); // Preload root.
+        literal(install.out, "hitArea");
+        integer(install.out, 3);
+        rootPath(install.out, "aimer");
+        literal(install.out, "addProperty");
+        install.op(0x52, 0x17);
+        return install.bytes();
+    }
+
+    static byte[] combatPointer(boolean combat) throws IOException {
+        Map<String, Integer> constants = Collections.emptyMap();
+        ActionCode pointer = new ActionCode(constants);
+        // The reticle already sits above scenery. During combat it can be
+        // picked first, using the game's firing surface as its hit area.
+        for (String event : new String[]{"onPress", "onRelease", "onReleaseOutside"}) {
+            rootPath(pointer.out, "aimer");
+            literal(pointer.out, event);
+            if (combat) {
+                ActionCode delegate = new ActionCode(constants);
+                integer(delegate.out, 0);
+                rootPath(delegate.out, "stageBG");
+                literal(delegate.out, "onPress".equals(event) ? "onPress" : "onRelease");
+                delegate.op(0x52, 0x17, 0);
+                pointer.out.write(delegate.function("", 2, 0x2a));
+                pointer.op(0x4f); // SetMember
+            } else {
+                pointer.op(0x3a, 0x17); // Delete, Pop
+            }
+        }
+        ByteArrayOutputStream result = new ByteArrayOutputStream();
+        result.write(whenClipExists("aimer", pointer.bytes()));
+        if (!combat) result.write(stageReleaseOutside(false));
+        return result.toByteArray();
+    }
+
+    static byte[] stageReleaseOutside(boolean combat) throws IOException {
+        ByteArrayOutputStream action = new ByteArrayOutputStream();
+        // A press can start on either firing surface and finish over the
+        // other one. Both targets must end the hold on ReleaseOutside.
+        rootPath(action, "stageBG");
+        literal(action, "onReleaseOutside");
+        if (combat) {
+            rootPath(action, "stageBG.onRelease");
+            action.write(0x4f); // SetMember
+            return action.toByteArray();
+        }
+        action.write(0x3a); // Delete
+        action.write(0x17); // Pop
+        return whenClipExists("stageBG", action.toByteArray());
     }
 
     private static byte[] proximityFunction(byte[] movie, int bodyAt, Map<String, Integer> pool)

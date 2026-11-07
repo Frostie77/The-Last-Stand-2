@@ -37,6 +37,26 @@ const runtime=process.env.TLS2_RUFFLE_PATH||path.join(root,'app/src/main/assets/
   assert.deepEqual(frozen.slice(0,2),position,'The original drag must be stopped');
   assert.notDeepEqual(frozen.slice(2),position,'The stage pointer must still move');
   console.log('PASS: reticle follows the stage pointer without retaining a Flash drag.');
+  const pointerState=()=>page.evaluate(()=>document.querySelector('ruffle-player').pointerState());
+  const click=async (from,to=from)=>page.evaluate(([from,to])=>{
+   window.tls2Aim(...from);
+   window.tls2Key('fire',true,'button96');
+   window.tls2Aim(...to);
+   window.tls2Key('fire',false,'button96');
+  },[from,to]);
+  const center=[.5,.5], corner=[.13,.97], options=[.025,.963];
+  assert.equal(await pointerState(),'0|0|0|function|function');
+  await click(center,corner);
+  assert.equal(await pointerState(),'1|1|0|function|function');
+  await click(corner,center);
+  assert.equal(await pointerState(),'2|2|0|function|function');
+  await click(options);
+  assert.equal(await pointerState(),'2|2|1|function|function');
+  await page.evaluate(()=>document.querySelector('ruffle-player').pointerMenu());
+  assert.equal(await pointerState(),'2|2|1|undefined|undefined');
+  await click(options);
+  assert.equal(await pointerState(),'2|2|2|undefined|undefined');
+  console.log('PASS: combat pointer fires and releases across the options boundary, and menu clicks reach the game.');
   let updates=0;
   for(const kind of ['bloodParticle','flameParticle']) for(const values of [[8,180,.35,4,9,-5],[9,0,1.5,-7,-4,2],[4,45,-.4,30,6,0],[100,360,0,0,0,0],[0,-90,.3,400,10,-3],[0,180,.35,4,0,-5]]){
    await page.evaluate(v=>document.querySelector('ruffle-player').particleReset(...v),[...values,kind]);
