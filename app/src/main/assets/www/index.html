@@ -9,11 +9,18 @@ html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#000;
 #stage { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
 #game { flex-shrink:0; width:min(100vw, calc(100vh * 40 / 21)); height:min(100vh, calc(100vw * 21 / 40)); transform-origin:center center; }
 ruffle-player { display:block; width:100%; height:100%; }
+#reticle { position:absolute; top:0; left:0; z-index:1; width:clamp(18px, 2.6vw, 30px); pointer-events:none; }
+#reticle svg { display:block; width:100%; filter:drop-shadow(0 0 1px #000); }
 #status { position:absolute; left:20px; bottom:20px; color:#ddd; font-size:14px; pointer-events:none; }
 </style>
 </head>
 <body>
 <div id="stage"><div id="game"></div></div>
+<div id="reticle" hidden aria-hidden="true">
+  <svg viewBox="0 0 26 26" fill="none" stroke="#eee">
+    <path d="M13 0v8m0 10v8M0 13h8m10 0h8"/>
+  </svg>
+</div>
 <div id="status">Starting The Last Stand 2…</div>
 <script>
 window.RufflePlayer = window.RufflePlayer || {};
@@ -31,6 +38,8 @@ let tls2RenderResolution = 0;
 let tls2Phase = 'menu';
 let aimX = 0.5, aimY = 0.5, pointerCanvas = null;
 let pointerInStage = false;
+const game = document.getElementById('game');
+const reticle = document.getElementById('reticle');
 const sources = Object.create(null);
 const keys = {
   up:{key:'w',code:'KeyW',keyCode:87},
@@ -60,14 +69,36 @@ function canvasForPointer() {
                    a.getBoundingClientRect().width * a.getBoundingClientRect().height)[0] || null;
 }
 
+function pointerPosition(rect) {
+  return {
+    x:Math.max(rect.left + 1, Math.min(rect.right - 1, aimX * innerWidth)),
+    y:Math.max(rect.top + 1, Math.min(rect.bottom - 1, aimY * innerHeight))
+  };
+}
+
+function positionReticle(x, y) {
+  reticle.style.transform = `translate3d(${x}px,${y}px,0) translate(-50%,-50%)`;
+}
+
+function syncReticle() {
+  // Combat draws the original Flash reticle. The other game screens use
+  // this overlay, centred on the same clamped pointer used for clicks.
+  reticle.hidden = !tls2Ready || tls2Phase === 'combat' || tls2MenuPaused || tls2BackgroundPaused;
+  if (!reticle.hidden) {
+    const bounds = (canvasForPointer() || game).getBoundingClientRect();
+    const {x,y} = pointerPosition(bounds);
+    positionReticle(x, y);
+  }
+}
+
 // Match the proven Arcane bridge: Ruffle listens on its shadow canvas and
 // reads untransformed canvas-local offsets, including in Stretch mode.
 function sendPointer(type, down) {
   const canvas = canvasForPointer();
   if (!canvas) return false;
   const r = canvas.getBoundingClientRect();
-  const x = Math.max(r.left + 1, Math.min(r.right - 1, aimX * innerWidth));
-  const y = Math.max(r.top + 1, Math.min(r.bottom - 1, aimY * innerHeight));
+  const {x,y} = pointerPosition(r);
+  if (type === 'pointermove' && !reticle.hidden) positionReticle(x, y);
   const options = {
     bubbles:true, composed:true, cancelable:true, pointerType:'mouse',
     pointerId:10, isPrimary:true, clientX:x, clientY:y, screenX:x, screenY:y,
@@ -106,7 +137,7 @@ window.tls2Aim = (nx, ny) => {
   if (!tls2Ready || tls2MenuPaused || tls2BackgroundPaused ||
       !Number.isFinite(Number(nx)) || !Number.isFinite(Number(ny))) return;
   aimX = clamp(nx); aimY = clamp(ny);
-  sendPointer('pointermove', fireHeld());
+  if (!sendPointer('pointermove', fireHeld())) syncReticle();
 };
 
 function sendKey(id, down) {
@@ -157,6 +188,7 @@ window.tls2TouchPointer = (kind, nx, ny) => {
 };
 
 function syncRufflePause() {
+  syncReticle();
   const paused = tls2MenuPaused || tls2BackgroundPaused;
   if (!tls2Ready || !player || tls2RufflePaused === paused) return;
   if (paused) player.ruffle().suspend(); else player.ruffle().resume();
@@ -172,7 +204,6 @@ window.tls2SetBackgroundPaused = value => {
   tls2BackgroundPaused = !!value; syncRufflePause();
 };
 function applyGameSize() {
-  const game = document.getElementById('game');
   const stretch = tls2DisplayMode === 'stretch';
   const width = stretch ? innerWidth : Math.min(innerWidth, innerHeight * 40 / 21);
   const height = stretch ? innerHeight : Math.min(innerHeight, innerWidth * 21 / 40);
@@ -188,6 +219,7 @@ function applyGameSize() {
   }
   game.style.width = baseWidth + 'px'; game.style.height = baseHeight + 'px';
   game.style.transform = 'scale(' + width / baseWidth + ',' + height / baseHeight + ')';
+  syncReticle();
 }
 window.tls2SetDisplayMode = mode => {
   tls2DisplayMode = mode === 'stretch' ? 'stretch' : 'original';
@@ -208,13 +240,14 @@ window.addEventListener('load', async () => {
       if (command !== 'tls2Phase' || !['combat','menu'].includes(phase) || phase === tls2Phase) return;
       tls2Phase = phase;
       pointerInStage = false;
+      syncReticle();
       // A cursor/scene change belongs to touch aiming. Preserve held gamepad
       // sources: Android sends their next event only when a button/axis changes.
       // The native touch view cancels its own fingers when reportPhase runs.
       if (window.LastStand2Host) window.LastStand2Host.reportPhase(phase);
       console.info('LastStand2 phase: ' + phase);
     };
-    document.getElementById('game').appendChild(player);
+    game.appendChild(player);
     applyGameSize();
     await player.ruffle().load({url:'/game/the-last-stand-2.swf', allowNetworking:'all', allowScriptAccess:true, quality:tls2Quality});
     tls2Ready = true;

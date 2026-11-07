@@ -21,6 +21,8 @@ const player = {shadowRoot:{querySelectorAll:()=>canvases},
   dispatchEvent:e=>{events.push(e);if(ruffleHasFocus)e.preventDefault();},ruffle:()=>({load:async options=>{loadedConfig=options;},
     suspend:()=>suspended++,resume:()=>resumed++})};
 const game={style:{},appendChild(){},getBoundingClientRect:()=>rect};
+const reticle={hidden:true,style:{}};
+const reticleAt=(x,y)=>assert.equal(reticle.style.transform,`translate3d(${x}px,${y}px,0) translate(-50%,-50%)`);
 class Event {
   constructor(type,options){this.type=type;this.defaultPrevented=false;Object.assign(this,options);}
   preventDefault(){this.defaultPrevented=true;}
@@ -28,7 +30,7 @@ class Event {
 const context = {console,innerWidth:1000,innerHeight:500,PointerEvent:Event,KeyboardEvent:Event,
   URLSearchParams,location:{search:''},
   LastStand2Host:{reportPhase:phase=>phases.push(phase)},
-  document:{hidden:false,getElementById:id=>id==='game'?game:{remove(){}},
+  document:{hidden:false,getElementById:id=>id==='game'?game:id==='reticle'?reticle:{remove(){}},
     addEventListener:(id,fn)=>hooks['document:'+id]=fn},
   addEventListener:(id,fn)=>hooks[id]=fn,
   RufflePlayer:{newest:()=>({createPlayer:()=>player})}};
@@ -37,16 +39,24 @@ vm.createContext(context); vm.runInContext(script,context);
 const key=(id,down,source)=>context.tls2Key(id,down,source);
 const filtered=type=>events.filter(e=>e.type===type);
 (async()=>{
+  assert.equal(reticle.hidden,true);
   await hooks.load();
+  assert.equal(reticle.hidden,false);
+  reticleAt(500,250);
   assert.equal(context.RufflePlayer.config.quality,'low');
   assert.equal(loadedConfig.quality,'low');
   context.tls2Aim(0.7,0.6);
   let e=filtered('pointermove').at(-1);
   assert.equal(e.offsetX,600); assert.equal(e.offsetY,260);
   assert.equal(e.buttons,0);
+  reticleAt(e.clientX,e.clientY);
+  context.tls2Aim(0,1);
+  reticleAt(101,459);
+  context.tls2Aim(0.7,0.6);
   key('fire',true,'button105'); key('fire',true,'rightTrigger');
   key('select',true,'button96');
   assert.equal(filtered('pointerdown').length,1);
+  reticleAt(filtered('pointerdown')[0].clientX,filtered('pointerdown')[0].clientY);
   key('fire',false,'button105'); key('fire',false,'rightTrigger');
   assert.equal(filtered('pointerup').length,0);
   context.tls2Aim(0.6,0.4);
@@ -66,19 +76,23 @@ const filtered=type=>events.filter(e=>e.type===type);
   assert.equal(e.offsetX,300); assert.equal(e.offsetY,130);
   context.tls2TouchPointer('down',0.8,0.5);
   assert.equal(filtered('pointerdown').at(-1).offsetX,350);
+  reticleAt(800,250);
   context.tls2TouchPointer('cancel',0,0);
   assert.equal(filtered('pointerup').at(-1).offsetX,350);
 
   key('fire',true,'button105'); key('reload',true,'touch');
   context.tls2SetMenuPaused(true);
+  assert.equal(reticle.hidden,true);
   assert.equal(filtered('pointerup').at(-1).buttons,0);
   assert.equal(filtered('keyup').at(-1).code,'KeyR');
   const count=events.length;
   key('fire',true,'button105'); context.tls2Aim(0.1,0.1);
   assert.equal(events.length,count);
   context.tls2SetBackgroundPaused(true); context.tls2SetMenuPaused(false);
+  assert.equal(reticle.hidden,true);
   assert.equal(resumed,0); assert.equal(suspended,1);
   context.tls2SetBackgroundPaused(false); assert.equal(resumed,1);
+  assert.equal(reticle.hidden,false);
   key('swap',true,'touch'); hooks.blur();
   assert.equal(filtered('keyup').at(-1).code,'Space');
   // Scene detection must not cancel gamepad buttons/axes, whose native state
@@ -87,6 +101,10 @@ const filtered=type=>events.filter(e=>e.type===type);
   key('fire',true,'rightTrigger'); key('fire',true,'touchAim');
   events.length=0;
   player.onFSCommand('tls2Phase','combat');
+  assert.equal(reticle.hidden,true);
+  const combatTransform=reticle.style.transform;
+  context.tls2Aim(0.55,0.6);
+  assert.equal(reticle.style.transform,combatTransform);
   assert.equal(filtered('pointerup').length,0);
   assert.equal(filtered('keyup').length,0);
   context.tls2TouchPointer('cancel',0,0);
@@ -96,6 +114,8 @@ const filtered=type=>events.filter(e=>e.type===type);
   player.onFSCommand('tls2Phase','invalid');
   assert.equal(events.length,phaseEvents);
   player.onFSCommand('tls2Phase','menu');
+  assert.equal(reticle.hidden,false);
+  reticleAt(550,300);
   assert.equal(filtered('pointerup').length,0);
   assert.equal(filtered('keyup').length,0);
   key('right',false,'stick'); key('fire',false,'rightTrigger');

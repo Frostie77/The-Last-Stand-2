@@ -4,6 +4,8 @@ The original, unmodified Not Doppler SWF is v1.31, 8,824,265 bytes, SHA-256 `db3
 
 The HTML bridge merges held movement/fire from touch, stick, hat, buttons and analogue triggers. Pressing A and R2 together must not release fire until both are released. Aim and fire target the same internal Ruffle canvas and use the same untransformed local coordinates, including when the display is stretched. The controller cursor stays where it is when the right stick returns to neutral.
 
+The title, journal and daytime menus draw a crosshair at the same clamped position used for pointer clicks. Night fights use the game's reticle. The overlay follows resize and display-mode changes and hides when FrostFrontend or the background pauses the game.
+
 The touch view owns fingers by stable pointer ID, allowing the movement pad, aiming and Reload/Switch simultaneously. Automated Android tests cover relative aim without snapping, lifting/re-touching, Direct preference, sensitivity, menu transitions, edge clamping, stationary input suppression, pointer reordering, cancellation and saved layouts. FrostFrontend supplies the shared editor and persistence.
 
 For the exact tested Not Doppler v1.31 file, a host-only patch adds phase notifications to the game's showCrosshairs/hideCrosshairs functions in memory. The imported file stays unchanged. Unknown SWF copies are served unchanged and retain Direct aiming. The HTML ignores unrelated FSCommands and duplicate phases. Render Resolution limits Ruffle's physical canvas pixels independently of display density, then scales the finished image; it does not change simulation speed or zombie counts. Performance under heavy fire and chainsaw use still requires an Odin retest.
