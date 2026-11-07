@@ -171,9 +171,10 @@ public final class MainActivity extends Activity {
     }
 
     private void startGame() {
+        boolean debug = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         final byte[] gameBytes;
         try (FileInputStream in = new FileInputStream(gameFile())) {
-            gameBytes = LastStand2SceneMarker.patch(in);
+            gameBytes = LastStand2SceneMarker.patch(in, debug);
         } catch (IOException error) {
             showError("Unable to load game: " + error.getMessage());
             return;
@@ -182,8 +183,7 @@ public final class MainActivity extends Activity {
         aimGeneration++;
         aimInFlight = aimPending = false;
         if (webView != null) { webView.destroy(); webView = null; }
-        WebView.setWebContentsDebuggingEnabled(
-            (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0);
+        WebView.setWebContentsDebuggingEnabled(debug);
         webView = new WebView(this);
         webView.setBackgroundColor(Color.BLACK);
         webView.setFocusable(true);

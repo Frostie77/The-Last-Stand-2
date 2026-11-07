@@ -11,7 +11,8 @@ const context={tls2Ready:true,tls2Phase:'combat',tls2MenuPaused:false,tls2Backgr
  LastStand2Host:{inputState:()=>JSON.stringify({aimInFlight:true,aimPending:true,aimWaitingMs:waiting})},
  tls2Key:()=>keys++,tls2Aim:()=>aims++,setInterval:f=>{tick=f;return 7},clearInterval:id=>{assert.equal(id,7);cleared++}};
 context.window=context;vm.createContext(context);const oldKey=context.tls2Key,oldAim=context.tls2Aim;
-vm.runInContext(script,context);
+const install=(prepare=false)=>vm.runInContext(`${script}(${prepare})`,context);
+install();
 assert.equal(context.__tls2InputCapture.before.flash.weapon,'sawnOff');
 assert.equal(context.__tls2InputCapture.before.flash.reloading,true);
 context.tls2Key('reload',true,'button99');context.tls2Aim(.6,.4);
@@ -20,7 +21,22 @@ const report=context.__tls2InputCapture.report();assert.equal(report.stateSample
 assert.equal(report.stateSamples[0].native.aimWaitingMs,500);assert.equal(report.keyCalls[0][1],'reload');
 context.__tls2InputCapture.restore();assert.equal(context.tls2Key,oldKey);assert.equal(context.tls2Aim,oldAim);
 assert.equal(cleared,1);assert.equal(hooks.length,0);assert.equal(keys,1);assert.equal(aims,1);
+let setups=0;
+assert.match(install(true).error,/Debug APK/);
+p.tls2PrepareSawnOffReload=()=>{setups++;};
+assert.match(install(true).error,/active fight/);
+assert.equal(setups,0);
+p.tls2GameInputState=()=>`pistol|7|false|false|false|false|false|7|1|0|600|200|function|function|false`;
+assert.match(install(true).error,/did not equip/);
+p.tls2PrepareSawnOffReload=()=>{
+  setups++;
+  p.tls2GameInputState=()=>`sawnOff|1|false|false|false|false|false|7|873|0|600|200|function|function|false`;
+};
+assert.equal(install(true).flash.ammo,1);
+assert.equal(context.__tls2InputCapture.before.flash.weapon,'sawnOff');
+context.__tls2InputCapture.restore();
+assert.equal(setups,2);
 delete p.tls2GameInputState;delete context.LastStand2Host;
-vm.runInContext(script,context);assert.equal(context.__tls2InputCapture.before.flash.available,false);
+install();assert.equal(context.__tls2InputCapture.before.flash.available,false);
 assert.equal(context.__tls2InputCapture.before.native,null);context.__tls2InputCapture.restore();
 console.log('PASS: reload/Flash/native state, timed samples, input delivery, older builds and complete cleanup.');

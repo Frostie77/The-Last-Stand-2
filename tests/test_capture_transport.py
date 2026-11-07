@@ -31,7 +31,9 @@ def fixture_result(request):
             value = {'before': {'phase': 'combat'}, 'pageFrameIntervals': {'maxMs': 220},
                      'aim': {'calls': 55}} if '.finish()' in expression else {'phase': 'combat'}
         elif 'return d.before' in expression:
-            value = {'phase': 'combat', 'paused': [False, False]}
+            assert expression.endswith(('})(false)', '})(true)')), expression[-40:]
+            value = ({'error': 'Enter an active fight'} if expression.endswith('})(true)')
+                     else {'phase': 'combat', 'paused': [False, False]})
         elif 'const report=d.report()' in expression:
             value = {'aimCalls': 12, 'keyCalls': [[1, 'fire', True, 'rightTrigger', 0, 1]],
                      'deliveredEvents': {'pointerdown': 1}, 'fragmentProbe': 'x' * 70000}
@@ -151,6 +153,15 @@ def main():
         assert len(REQUESTS) == 3, REQUESTS
         print('PASS: production PowerShell capture, WebSocket connection, protocol events, '
               'fragmented responses, report decoding and cleanup.')
+        REQUESTS.clear()
+        run = subprocess.run([args.powershell, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                              '-File', str(ROOT / 'capture-controller-input.ps1'),
+                              '-WebSocketUrl', url, '-SawnOff'],
+                             capture_output=True, text=True, timeout=25)
+        assert run.returncode != 0 and 'Enter an active fight' in run.stderr, run.stderr
+        assert not FAILURES, FAILURES
+        assert REQUESTS == ['Runtime.evaluate', 'Runtime.evaluate'], REQUESTS
+        print('PASS: the sawn-off option reports setup errors and cleans up before capture.')
         PERFORMANCE_CASE = True
         command = [args.powershell, '-NoProfile', '-ExecutionPolicy', 'Bypass',
                    '-File', str(ROOT / 'capture-controller-input.ps1'), '-Performance',

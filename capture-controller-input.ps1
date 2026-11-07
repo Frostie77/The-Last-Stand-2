@@ -2,9 +2,11 @@ param(
     [ValidateRange(8, 30)][int]$CaptureSeconds = 12,
     [string]$WebSocketUrl,
     [switch]$Performance,
+    [switch]$SawnOff,
     [string]$OutputDirectory = (Join-Path $PSScriptRoot '.diagnostics')
 )
 $ErrorActionPreference = 'Stop'
+if ($Performance -and $SawnOff) { throw 'Use either -Performance or -SawnOff for one capture.' }
 $tls2Adb = $null
 if ($env:LOCALAPPDATA) { $tls2Adb = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe' }
 $tls2ForwardPort = $null
@@ -140,7 +142,7 @@ function Invoke-Tls2PerformanceCapture {
 }
 
 $tls2InstallProbe = @'
-(() => {
+(prepareSawnOff => {
   window.__tls2InputCapture?.restore();
   if (typeof tls2Ready === 'undefined' || !tls2Ready) throw Error('Wait until the imported game is loaded.');
   const p = document.querySelector('ruffle-player'), c = canvasForPointer();
@@ -162,6 +164,19 @@ $tls2InstallProbe = @'
     focus:document.hasFocus(), active:document.activeElement?.tagName,
     flash:flash(),native:native(),
     held:Object.fromEntries(Object.entries(sources).filter(([,v])=>v.size).map(([k,v])=>[k,[...v]]))});
+  if (prepareSawnOff) {
+    if (typeof p.tls2PrepareSawnOffReload !== 'function')
+      return {error:'Sawn-off setup needs the updated Debug APK and the supported v1.31 SWF in an active fight.'};
+    const current = flash();
+    if (tls2Phase !== 'combat' || tls2MenuPaused || tls2BackgroundPaused ||
+        current.rootFrame !== 7 || current.gamePaused !== false || current.combatHandler !== 'function' ||
+        current.reloading || current.reloadAnimation || current.pumping || current.firing || sources.fire?.size)
+      return {error:'Enter an active fight, close FrostFrontend and release Fire before starting the test.'};
+    p.tls2PrepareSawnOffReload();
+    const equipped = flash();
+    if (equipped.weapon !== 'sawnOff' || equipped.ammo !== 1)
+      return {error:'The game did not equip the sawn-off with one shell.'};
+  }
   const d = {before:state(), keys:[], aimCalls:0, events:{}, started:performance.now(),
     oldKey:window.tls2Key, oldAim:window.tls2Aim, listeners:[], samples:[]};
   d.key = function(id, down, source) {
@@ -194,7 +209,7 @@ $tls2InstallProbe = @'
   d.interval=setInterval(()=>{d.samples.push({ms:Math.round(performance.now()-d.started),flash:flash(),native:native()});
     if(d.samples.length>60)d.samples.shift();},500);
   return d.before;
-})()
+})
 '@
 $tls2CollectProbe = @'
 (() => { const d=window.__tls2InputCapture; if(!d) throw Error('The game reloaded during capture.');
@@ -233,8 +248,15 @@ try {
         Invoke-Tls2PerformanceCapture
         return
     }
-    Invoke-Tls2Evaluation $tls2InstallProbe | Out-Null
-    Write-Host "Capturing for $CaptureSeconds seconds. Move BOTH sticks and press Fire, Reload and Switch on the Odin."
+    $tls2Prepare = if ($SawnOff) { 'true' } else { 'false' }
+    $tls2Before = Invoke-Tls2Evaluation "$tls2InstallProbe($tls2Prepare)"
+    if ($tls2Before.error) { throw $tls2Before.error }
+    if ($SawnOff) {
+        Write-Host 'Sawn-off equipped with one shell. Press X now, then try both sticks and Fire.'
+        Write-Host "Capturing for $CaptureSeconds seconds."
+    } else {
+        Write-Host "Capturing for $CaptureSeconds seconds. Move BOTH sticks and press Fire, Reload and Switch on the Odin."
+    }
     Write-Host 'Use the gamepad only; leave FrostFrontend closed.'
     Start-Sleep -Seconds $CaptureSeconds
     $tls2Report = Invoke-Tls2Evaluation $tls2CollectProbe

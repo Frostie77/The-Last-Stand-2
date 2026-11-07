@@ -19,6 +19,10 @@ final class LastStand2SceneMarker {
     private LastStand2SceneMarker() {}
 
     static byte[] patch(InputStream source) throws IOException {
+        return patch(source, false);
+    }
+
+    static byte[] patch(InputStream source, boolean enableReloadTest) throws IOException {
         byte[] original = read(source);
         try {
             StringBuilder digest = new StringBuilder();
@@ -34,7 +38,7 @@ final class LastStand2SceneMarker {
             int pos = 8 + (5 + 4 * ((movie[8] & 255) >>> 3) + 7) / 8 + 4;
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             out.write(movie, 0, pos);
-            int hooks = 0, particles = 0, loops = 0, diagnostics = 0;
+            int hooks = 0, particles = 0, loops = 0, proximityChecks = 0, diagnostics = 0;
             while (pos + 2 <= movie.length) {
                 int start = pos, header = ushort(movie, pos);
                 pos += 2;
@@ -82,6 +86,10 @@ final class LastStand2SceneMarker {
                             } else if ("moveParticle".equals(name)) {
                                 actions.write(particleFunction(pool));
                                 particles++;
+                            } else if ("zombieProximityCheck".equals(name)) {
+                                if (op != 0x8e || codeSize != 446) return original;
+                                actions.write(proximityFunction(movie, recordEnd, pool));
+                                proximityChecks++;
                             } else if (LastStand2LoopOptimizer.supports(name)) {
                                 actions.write(LastStand2LoopOptimizer.rewrite(name,movie,actionStart,
                                     recordEnd,functionEnd,pool));
@@ -89,6 +97,7 @@ final class LastStand2SceneMarker {
                             } else if ("reloadMagazine".equals(name)) {
                                 actions.write(movie,actionStart,functionEnd-actionStart);
                                 actions.write(inputStateCallback());
+                                if (enableReloadTest) actions.write(prepareSawnOffCallback());
                                 diagnostics++;
                             } else actions.write(movie, actionStart, functionEnd - actionStart);
                             at = functionEnd;
@@ -107,7 +116,8 @@ final class LastStand2SceneMarker {
                 pos += size;
                 if (tag == 0) break;
             }
-            if (hooks != 2 || particles != 1 || loops != 3 || diagnostics != 1) return original;
+            if (hooks != 2 || particles != 1 || loops != 3 || proximityChecks != 1 || diagnostics != 1)
+                return original;
             byte[] patched = out.toByteArray();
             for (int i = 0; i < 4; i++) patched[4 + i] = (byte)(patched.length >>> (8 * i));
             ByteArrayOutputStream compressed = new ByteArrayOutputStream();
@@ -137,19 +147,41 @@ final class LastStand2SceneMarker {
         literal(body,"|");body.write(0x21);
         integer(body,82);integer(body,1);literal(body,"Key");body.write(0x1c);
         literal(body,"isDown");body.write(0x52);body.write(0x21);body.write(0x3e);body.write(0);
-        String internal="__tls2GameInputState";
+        return externalCallback("tls2GameInputState", body);
+    }
+
+    private static byte[] prepareSawnOffCallback() throws IOException {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        // Call the game's weapon swap, then leave one shell missing for manual reload.
+        literal(body, "sawnOff");
+        integer(body, 1);
+        rootPath(body, "");
+        literal(body, "swapWeapon");
+        body.write(0x52); // CallMethod
+        body.write(0x17); // Pop
+        rootPath(body, "");
+        literal(body, "ammoInMag");
+        integer(body, 1);
+        body.write(0x4f); // SetMember
+        body.write(0);
+        return externalCallback("tls2PrepareSawnOffReload", body);
+    }
+
+    private static byte[] externalCallback(String name, ByteArrayOutputStream body) throws IOException {
+        String internal="__"+name;
         ByteArrayOutputStream header=new ByteArrayOutputStream();
         header.write((internal+"\0").getBytes(StandardCharsets.US_ASCII));word(header,0);word(header,body.size());
         ByteArrayOutputStream out=new ByteArrayOutputStream();
         out.write(0x9b);word(out,header.size());header.writeTo(out);body.writeTo(out);
         literal(out,internal);out.write(0x1c);literal(out,"_root");out.write(0x1c);
-        literal(out,"tls2GameInputState");integer(out,3);
+        literal(out,name);integer(out,3);
         literal(out,"flash");out.write(0x1c);literal(out,"external");out.write(0x4e);
         literal(out,"ExternalInterface");out.write(0x4e);literal(out,"addCallback");out.write(0x52);out.write(0x17);
         return out.toByteArray();
     }
     private static void rootPath(ByteArrayOutputStream out,String path) throws IOException {
         literal(out,"_root");out.write(0x1c);
+        if (path.isEmpty()) return;
         for(String member:path.split("\\.")) { literal(out,member);out.write(0x4e); }
     }
     private static void literal(ByteArrayOutputStream out,String text) throws IOException {
@@ -160,6 +192,42 @@ final class LastStand2SceneMarker {
         out.write(0x96);word(out,5);out.write(7);dword(out,value);
     }
 
+    private static byte[] proximityFunction(byte[] movie, int bodyAt, Map<String, Integer> pool)
+            throws IOException {
+        ActionCode c = new ActionCode(pool);
+        // Retain the exact v1.31 muzzle-coordinate setup through localToGlobal.
+        // r1 is the preloaded root and r2 is the resulting point.
+        c.out.write(movie, bodyAt, 104);
+        c.push(R1, "aliveZombies"); c.op(0x4e); c.store(R3); c.op(0x55); // Enumerate2
+        int loopStart = c.out.size();
+        c.store(R0);
+        c.op(0x96); word(c.out, 1); c.op(2); // Push null (end of enumeration).
+        c.op(0x49);
+
+        ActionCode step = new ActionCode(pool);
+        // Retain the shared v counter, each zombie's target coordinates and
+        // rounded distance, and its original debug text assignment.
+        step.push("v", R0); step.op(0x1d);
+        step.push(R3, R0); step.op(0x4e); step.store(R4); step.op(0x17);
+        step.push(R4, "ref"); step.op(0x4e); step.store(R5); step.op(0x17);
+        step.push(R4, "targetX", R5, "_x"); step.op(0x4e); step.store(R6); step.op(0x4f);
+        step.push(R4, "targetY", R5, "_y"); step.op(0x4e);
+        step.push(45); step.op(0x0b); step.store(R7); step.op(0x4f);
+        step.push(R4, "proximity", R2, "x"); step.op(0x4e);
+        step.push(R6); step.op(0x0b); step.store(R6); step.push(R6); step.op(0x0c);
+        step.push(R2, "y"); step.op(0x4e);
+        step.push(R7); step.op(0x0b); step.store(R7); step.push(R7); step.op(0x0c, 0x47);
+        step.push(1, "Math"); step.op(0x1c); step.push("sqrt"); step.op(0x52);
+        step.push(1, "Math"); step.op(0x1c); step.push("round"); step.op(0x52, 0x4f);
+        step.push(R5, "zombieProximity"); step.op(0x4e);
+        step.push("text", R0); step.op(0x4f);
+        int loopEnd = c.out.size() + 5 + step.out.size() + 5; // Include both branches.
+        step.op(0x99); word(step.out, 2); word(step.out, loopStart - loopEnd);
+        c.branchPast(step.bytes());
+        c.op(0);
+        return c.function("zombieProximityCheck", 8, 0x6a);
+    }
+
     // The original per-particle callback uses `with(this)` and repeatedly
     // resolves `this` and its fields through the AVM1 scope chain. All these
     // fields are assigned by particleEmitter. Preload the receiver into r1
@@ -168,11 +236,11 @@ final class LastStand2SceneMarker {
     // avoiding string-map lookups for _x, _y, _alpha and _rotation.
     // Strings refer to the existing constant pool, avoiding per-frame strings.
     static byte[] particleFunction(Map<String, Integer> pool) throws IOException {
-        ParticleCode c = new ParticleCode(pool);
+        ActionCode c = new ActionCode(pool);
         c.push(R1,6,R1,6); c.op(0x22);
         c.push(R1,"particleFade"); c.op(0x4e,0x0b,0x23);
         c.push(R1,6); c.op(0x22); c.push(8); c.op(0x48,0x12);
-        ParticleCode remove = new ParticleCode(pool);
+        ActionCode remove = new ActionCode(pool);
         remove.push(0,R1,"removeMovieClip"); remove.op(0x52,0x17);
         c.branchPast(remove.bytes());
         c.push(R1,10,R1,10); c.op(0x22);
@@ -184,7 +252,7 @@ final class LastStand2SceneMarker {
         c.op(0x66,0x12);
         c.push(R1,"partType"); c.op(0x4e);
         c.push("bloodParticle"); c.op(0x66,0x10);
-        ParticleCode horizontal = new ParticleCode(pool);
+        ActionCode horizontal = new ActionCode(pool);
         horizontal.push(R1,"x",R1,"angle"); horizontal.op(0x4e); horizontal.push(Math.PI);
         horizontal.op(0x0c); horizontal.push(180); horizontal.op(0x0d); horizontal.push(1,"Math");
         horizontal.op(0x1c); horizontal.push("cos"); horizontal.op(0x52);
@@ -195,30 +263,27 @@ final class LastStand2SceneMarker {
         c.push(R1,1,R1,1); c.op(0x22);
         c.push(R1,"VertEnergy",R1,"VertEnergy"); c.op(0x4e);
         c.push(R1,"gravity"); c.op(0x4e,0x47);
-        c.op(0x87); word(c.out,1); c.op(2); // StoreRegister r2 leaves its value on the stack.
+        c.store(R2);
         c.op(0x4f); c.push(R2); c.op(0x47,0x23,0);
-        byte[] body = c.bytes();
-        ByteArrayOutputStream header = new ByteArrayOutputStream();
-        header.write("moveParticle\0".getBytes(StandardCharsets.US_ASCII));
-        word(header,0); header.write(3); word(header,0x29); // preload this; suppress arguments/super
-        word(header,body.length);
-        ByteArrayOutputStream function = new ByteArrayOutputStream();
-        function.write(0x8e); word(function,header.size());
-        header.writeTo(function); function.write(body);
-        return function.toByteArray();
+        return c.function("moveParticle", 3, 0x29); // Preload this; suppress arguments/super.
     }
 
-    private static final Register R1 = new Register(1), R2 = new Register(2);
+    private static final Register R0 = new Register(0), R1 = new Register(1), R2 = new Register(2),
+        R3 = new Register(3), R4 = new Register(4), R5 = new Register(5),
+        R6 = new Register(6), R7 = new Register(7);
     private static final class Register {
         final int number;
         Register(int number) { this.number = number; }
     }
-    private static final class ParticleCode {
+    private static final class ActionCode {
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
         final Map<String, Integer> pool;
-        ParticleCode(Map<String, Integer> pool) { this.pool = pool; }
+        ActionCode(Map<String, Integer> pool) { this.pool = pool; }
         byte[] bytes() { return out.toByteArray(); }
         void op(int... values) { for (int value : values) out.write(value); }
+        void store(Register register) {
+            op(0x87); word(out, 1); op(register.number); // StoreRegister leaves the value on the stack.
+        }
         void push(Object... values) throws IOException {
             ByteArrayOutputStream data = new ByteArrayOutputStream();
             for (Object value : values) {
@@ -226,7 +291,7 @@ final class LastStand2SceneMarker {
                     data.write(4); data.write(((Register)value).number);
                 } else if (value instanceof String) {
                     Integer index = pool.get(value);
-                    if (index == null) throw new IOException("Missing particle constant: " + value);
+                    if (index == null) throw new IOException("Missing combat constant: " + value);
                     data.write(9); word(data,index);
                 } else if (value instanceof Integer) {
                     data.write(7); dword(data,(Integer)value);
@@ -240,6 +305,20 @@ final class LastStand2SceneMarker {
         }
         void branchPast(byte[] body) throws IOException {
             out.write(0x9d); word(out,2); word(out,body.length); out.write(body);
+        }
+        byte[] function(String name, int registers, int flags) throws IOException {
+            ByteArrayOutputStream header = new ByteArrayOutputStream();
+            header.write((name + "\0").getBytes(StandardCharsets.US_ASCII));
+            word(header, 0);
+            header.write(registers);
+            word(header, flags);
+            word(header, out.size());
+            ByteArrayOutputStream function = new ByteArrayOutputStream();
+            function.write(0x8e);
+            word(function, header.size());
+            header.writeTo(function);
+            out.writeTo(function);
+            return function.toByteArray();
         }
     }
 
