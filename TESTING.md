@@ -56,6 +56,6 @@ Set `TLS2_PROFILE=1` when running the optional Ruffle engine check to verify the
 6. Opening settings or editing while firing must release inputs and pause gameplay/audio. Background/resume must preserve an open frontend and avoid stuck movement/fire.
 7. Game sound in both speakers, speaker test and long-session performance.
 8. Survive Night 1, use the daytime search/repair/travel screens, change survivor weapons, and confirm saved progress after closing and reopening.
-9. Choose and install final launcher artwork. Prepare the permanent signing key and verify a signed release before publishing/activating stable updates.
+9. Verify the title launcher icon and smoke-test the exact signed APK before activating stable updates.
 
-The full playthrough and device performance checks remain pending.
+The owner confirmed the development build played well on the AYN Odin 2 Portal and reported a clear improvement in the UZI sound with individually timed effects. The 12-second device capture logged 333 direct combat effects, zero scheduled gaps, and zero clipped samples in Ruffle's audio buffers. The signed v0.1.0 APK still needs its own launch, import and gameplay smoke test. A full campaign playthrough is pending.

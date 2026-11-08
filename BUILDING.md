@@ -20,3 +20,5 @@ For preparation without a build/install, add `-PrepareOnly`. Use the same PC/deb
 - `gradle :frostfrontend:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease` runs Android tests and builds both variants after the pinned runtime is prepared.
 
 GitHub Actions runs these checks and verifies package identity, minimum SDK, HTML, runtime hashes and the absence of SWFs in both APKs. CI's Debug artifact is for testing; use the Windows helper for a stable local debug signing key.
+
+To prepare a signed public APK on Windows, use `build-public-release.ps1` from a clean checkout. [Release instructions](RELEASING.md)
