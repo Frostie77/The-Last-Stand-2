@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -39,6 +40,7 @@ final class LastStand2SceneMarker {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             out.write(movie, 0, pos);
             int hooks = 0, fireHooks = 0, particles = 0, loops = 0, proximityChecks = 0, diagnostics = 0;
+            int audioHooks = 0;
             while (pos + 2 <= movie.length) {
                 int start = pos, header = ushort(movie, pos);
                 pos += 2;
@@ -75,6 +77,7 @@ final class LastStand2SceneMarker {
                             int codeSize = ushort(movie, codeSizeAt);
                             int functionEnd = recordEnd + codeSize;
                             if (functionEnd > end) return original;
+                            SoundSite[] soundSites = audioSites(name);
                             if ("showCrosshairs".equals(name) || "hideCrosshairs".equals(name)) {
                                 boolean combat = "showCrosshairs".equals(name);
                                 byte[] notify = notification(combat ? "combat" : "menu");
@@ -104,6 +107,20 @@ final class LastStand2SceneMarker {
                                 if (op != 0x8e || codeSize != 446) return original;
                                 actions.write(proximityFunction(movie, recordEnd, pool));
                                 proximityChecks++;
+                            } else if (soundSites != null) {
+                                byte[] bodyWithAudio = timedSounds(movie, recordEnd, codeSize, soundSites);
+                                ByteArrayOutputStream function = new ByteArrayOutputStream();
+                                function.write(movie, actionStart, codeSizeAt - actionStart);
+                                word(function, bodyWithAudio.length);
+                                function.write(bodyWithAudio);
+                                byte[] updated = function.toByteArray();
+                                if (LastStand2LoopOptimizer.supports(name)) {
+                                    updated = LastStand2LoopOptimizer.rewrite(name, updated, 0,
+                                        recordEnd - actionStart, updated.length, pool);
+                                    loops++;
+                                }
+                                actions.write(updated);
+                                audioHooks++;
                             } else if (LastStand2LoopOptimizer.supports(name)) {
                                 actions.write(LastStand2LoopOptimizer.rewrite(name,movie,actionStart,
                                     recordEnd,functionEnd,pool));
@@ -121,6 +138,9 @@ final class LastStand2SceneMarker {
                         }
                     }
                     replacement = actions.toByteArray();
+                } else if (tag == 39 && size >= 4 && ushort(movie, pos) == 1199) {
+                    replacement = timedExplosion(movie, pos, size);
+                    audioHooks++;
                 }
                 if (replacement != null) {
                     word(out, (tag << 6) | 63);
@@ -130,7 +150,8 @@ final class LastStand2SceneMarker {
                 pos += size;
                 if (tag == 0) break;
             }
-            if (hooks != 2 || fireHooks != 1 || particles != 1 || loops != 3 || proximityChecks != 1 || diagnostics != 1)
+            if (hooks != 2 || fireHooks != 1 || particles != 1 || loops != 3 || proximityChecks != 1 ||
+                diagnostics != 1 || audioHooks != 5)
                 return original;
             byte[] patched = out.toByteArray();
             for (int i = 0; i < 4; i++) patched[4 + i] = (byte)(patched.length >>> (8 * i));
@@ -143,6 +164,111 @@ final class LastStand2SceneMarker {
         } catch (Exception error) {
             return original; // Unknown/unsupported copies retain working Direct touch input.
         }
+    }
+
+    // Offsets in the SHA-verified v1.31 AVM1 bodies. Each span is one
+    // attachSound / setVolume / start(0, 1) sequence. For a dynamic linkage,
+    // expressionEnd marks the end of the original name computation.
+    private record SoundSite(int begin, int expressionEnd, int start, int end, int volume, String linkage) {
+        SoundSite(int begin, int expressionEnd, int start, int end, int volume) {
+            this(begin, expressionEnd, start, end, volume, null);
+        }
+        SoundSite(int begin, int start, int end, int volume, String linkage) {
+            this(begin, begin, start, end, volume, linkage);
+        }
+    }
+
+    private static SoundSite[] audioSites(String function) {
+        return switch (function) {
+            case "attachRound" -> new SoundSite[]{new SoundSite(217, 241, 282, 314, 100)};
+            case "survivorWeaponFire" -> new SoundSite[]{new SoundSite(874, 906, 951, 985, 40)};
+            case "stopFire" -> new SoundSite[]{new SoundSite(243, 286, 318, 60, "sound_chainsawEnd")};
+            case "collisionTest" -> new SoundSite[]{
+                new SoundSite(7598, 7620, 7663, 7696, 100),
+                new SoundSite(8073, 8095, 8138, 8171, 100),
+                new SoundSite(8813, 8859, 8892, 100, "sound_hitHead1"),
+                new SoundSite(9184, 9206, 9249, 9282, 100),
+                new SoundSite(10869, 10891, 10934, 10967, 100),
+                new SoundSite(11414, 11436, 11479, 11512, 100),
+                new SoundSite(11958, 11980, 12023, 12056, 100),
+                new SoundSite(12393, 12415, 12458, 12491, 100),
+                new SoundSite(13601, 13623, 13666, 13699, 100),
+                new SoundSite(13844, 13866, 13909, 13942, 100),
+                new SoundSite(14176, 14222, 14255, 100, "sound_hitBody1"),
+                new SoundSite(14464, 14486, 14529, 14562, 100)
+            };
+            default -> null;
+        };
+    }
+
+    private static byte[] timedSounds(byte[] movie, int offset, int size, SoundSite... sites) throws IOException {
+        byte[] original = Arrays.copyOfRange(movie, offset, offset + size);
+        ByteArrayOutputStream tails = new ByteArrayOutputStream();
+        // Appended blocks keep the original game jumps and their targets at
+        // the same offsets. No existing branch enters the middle of a span.
+        for (SoundSite site : sites) {
+            if (site.end > size || original[site.begin] != (byte)0x96 ||
+                original[site.start] != (byte)0x96 || original[site.end - 1] != 0x17)
+                throw new IOException("Unexpected combat sound actions");
+            ByteArrayOutputStream entry = new ByteArrayOutputStream();
+            branch(entry, 0x99, size + 5 + tails.size() - (site.begin + 5));
+
+            if (site.linkage == null) {
+                tails.write(movie, offset + site.begin, site.expressionEnd - site.begin);
+                tails.write(0x4c); // Keep the computed linkage without repeating a random choice.
+            }
+            tails.write(movie, offset + site.expressionEnd, site.start - site.expressionEnd);
+            integer(tails, site.volume);
+            if (site.linkage == null) tails.write(0x4d); // Swap to pass arguments right to left.
+            else literal(tails, site.linkage);
+            literal(tails, "tls2PlayCombatSound");
+            integer(tails, 3);
+            externalInterface(tails, "call");
+            branch(tails, 0x9d, site.end - site.start); // A successful host start skips Flash playback.
+            tails.write(movie, offset + site.start, site.end - site.start);
+            branch(tails, 0x99, site.end - (size + 5 + tails.size() + 5));
+
+            Arrays.fill(original, site.begin, site.end, (byte)0);
+            System.arraycopy(entry.toByteArray(), 0, original, site.begin, 5);
+        }
+        ByteArrayOutputStream patched = new ByteArrayOutputStream();
+        patched.write(original);
+        branch(patched, 0x99, tails.size());
+        tails.writeTo(patched);
+        return patched.toByteArray();
+    }
+
+    private static byte[] timedExplosion(byte[] movie, int pos, int size) throws IOException {
+        ByteArrayOutputStream sprite = new ByteArrayOutputStream();
+        sprite.write(movie, pos, 4);
+        int end = pos + size;
+        pos += 4;
+        int rewritten = 0;
+        while (pos + 2 <= end) {
+            int start = pos, header = ushort(movie, pos);
+            pos += 2;
+            int tag = header >>> 6, length = header & 63;
+            if (length == 63) { length = uint(movie, pos); pos += 4; }
+            if (length < 0 || length > end - pos) throw new IOException("Invalid explosion sprite");
+            if (tag == 12 && length == 169) {
+                byte[] action = timedSounds(movie, pos, length,
+                    new SoundSite(93, 136, 168, 100, "sound_explosion"));
+                word(sprite, (tag << 6) | 63);
+                dword(sprite, action.length);
+                sprite.write(action);
+                rewritten++;
+            } else sprite.write(movie, start, pos + length - start);
+            pos += length;
+        }
+        if (pos != end || rewritten != 1) throw new IOException("Missing explosion sound");
+        return sprite.toByteArray();
+    }
+
+    private static void branch(ByteArrayOutputStream out, int opcode, int distance) throws IOException {
+        if (distance < Short.MIN_VALUE || distance > Short.MAX_VALUE) throw new IOException("Branch too far");
+        out.write(opcode);
+        word(out, 2);
+        word(out, distance);
     }
 
     // Invoked only by the desktop recorder, never by the gameplay loop.
@@ -189,9 +315,16 @@ final class LastStand2SceneMarker {
         out.write(0x9b);word(out,header.size());header.writeTo(out);body.writeTo(out);
         literal(out,internal);out.write(0x1c);literal(out,"_root");out.write(0x1c);
         literal(out,name);integer(out,3);
-        literal(out,"flash");out.write(0x1c);literal(out,"external");out.write(0x4e);
-        literal(out,"ExternalInterface");out.write(0x4e);literal(out,"addCallback");out.write(0x52);out.write(0x17);
+        externalInterface(out, "addCallback");
+        out.write(0x17);
         return out.toByteArray();
+    }
+
+    private static void externalInterface(ByteArrayOutputStream out, String method) throws IOException {
+        literal(out, "flash"); out.write(0x1c);
+        literal(out, "external"); out.write(0x4e);
+        literal(out, "ExternalInterface"); out.write(0x4e);
+        literal(out, method); out.write(0x52);
     }
     private static void rootPath(ByteArrayOutputStream out,String path) throws IOException {
         literal(out,"_root");out.write(0x1c);

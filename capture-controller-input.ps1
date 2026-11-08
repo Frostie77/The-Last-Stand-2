@@ -259,7 +259,7 @@ try {
         $tls2Report = Invoke-Tls2Evaluation 'window.__tls2AudioCapture.finish()'
         Write-Host 'AUDIO CAPTURE:'
         $tls2Report | ConvertTo-Json -Depth 8 -Compress
-        Write-Host 'Paste the AUDIO CAPTURE output and say whether you heard crackling or cutouts.'
+        Write-Host 'Paste the AUDIO CAPTURE output and say which weapon sounds were jumbled or missing, if any.'
         return
     }
     $tls2Prepare = if ($SawnOff) { 'true' } else { 'false' }

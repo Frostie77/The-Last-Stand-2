@@ -10,6 +10,7 @@
   const original = prototype.start;
   const lastEnd = new WeakMap();
   const started = performance.now();
+  const timedSoundsAtStart = window.tls2TimedCombatSounds || 0;
   const weapon = () => document.querySelector('ruffle-player')?.tls2GameInputState?.()?.split('|')[0];
   const before = {phase:tls2Phase, weapon:weapon()};
   const stats = {buffers:0, bufferFrames:{}, sampledValues:0, aboveFullScale:0,
@@ -65,6 +66,7 @@
         contextState:lastContext?.state ?? null,
         tailGapMs:lastContext ? round(Math.max(0, lastContext.currentTime - lastEnd.get(lastContext)) * 1000) : null,
         preparedCombatSounds:window.tls2PreparedCombatSounds || 0,
+        timedCombatSounds:(window.tls2TimedCombatSounds || 0) - timedSoundsAtStart,
         combatPeakLimiter:window.tls2CombatPeakLimiter === true};
       capture.restore();
       return report;

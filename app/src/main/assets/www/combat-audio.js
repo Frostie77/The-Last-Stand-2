@@ -1,9 +1,9 @@
 (() => {
-  // DefineSound IDs for weapon fire, impacts, and the working chainsaw
+  // DefineSound IDs for weapon fire, impacts, and the chainsaw
   // in the verified Not Doppler v1.31 movie.
   const combatSounds = new Set([
     1127, 1223, 1227, 1228, 1231, 1232, 1236, 1247, 1248, 1249, 1252,
-    1255, 1266, 1267, 1269, 1270, 1271, 1272, 1273, 1274, 1275
+    1255, 1257, 1266, 1267, 1269, 1270, 1271, 1272, 1273, 1274, 1275
   ]);
   const defineSoundTag = 14;
 
@@ -31,6 +31,71 @@
       return start.apply(this, arguments);
     };
     window.tls2CombatPeakLimiter = true;
+  }
+
+  function installTimedSounds(clips) {
+    if (!clips.size || typeof AudioBufferSourceNode !== 'function') return;
+    const prototype = AudioBufferSourceNode.prototype;
+    const connect = prototype.connect;
+    if (typeof connect !== 'function') return;
+
+    const outputs = new WeakMap();
+    let active, curve;
+    prototype.connect = function(destination) {
+      const context = this.context;
+      if (arguments.length !== 1 || destination !== context.destination ||
+          this.buffer?.numberOfChannels !== 2) return connect.apply(this, arguments);
+      // Ruffle connects every stereo mixer buffer straight to its output.
+      // Share that context so direct effects follow the same pause/resume.
+      if (!outputs.has(context)) {
+        try {
+          const input = context.createGain();
+          const limiter = context.createWaveShaper();
+          input.gain.value = 0.25;
+          curve ??= Float32Array.from({length:8193}, (_, i) => {
+            const sample = (i - 4096) / 1024;
+            const excess = Math.abs(sample) - 0.94;
+            return excess <= 0 ? sample : Math.sign(sample) * (0.94 + 0.04 * excess / (0.04 + excess));
+          });
+          limiter.curve = curve;
+          input.connect(limiter);
+          limiter.connect(destination);
+          outputs.set(context, {context, input});
+        } catch (_) {
+          outputs.set(context, null);
+        }
+      }
+      active = outputs.get(context);
+      if (!active) return connect.call(this, destination);
+      connect.call(this, active.input);
+      return destination;
+    };
+
+    window.tls2PlayCombatSound = (name, volume) => {
+      if (typeof name !== 'string') return false;
+      const clip = clips.get(name.toLowerCase());
+      if (!clip || active?.context.state !== 'running') return false;
+      try {
+        const {context, input} = active;
+        const source = context.createBufferSource();
+        source.buffer = clip.buffer;
+        if (volume === 100) source.connect(input);
+        else {
+          const gain = context.createGain();
+          gain.gain.value = volume / 100;
+          gain.connect(input);
+          source.connect(gain);
+          source.onended = () => gain.disconnect();
+        }
+        // Ruffle mixes new voices on the next buffer boundary. Schedule
+        // each shot at its actual start time, independent of that buffer size.
+        source.start(context.currentTime, clip.offset, clip.duration);
+        window.tls2TimedCombatSounds = (window.tls2TimedCombatSounds || 0) + 1;
+        return true;
+      } catch (_) {
+        return false;
+      }
+    };
   }
 
   async function decodeSound(sound, contexts) {
@@ -70,21 +135,23 @@
         output.setInt16(at, value, true);
       }
     }
-    return pcm;
+    return {pcm, buffer:decoded, offset:skip / sampleRate, duration:samples / sampleRate};
   }
 
   async function prepareMovie(original) {
     const header = new Uint8Array(original, 0, 8);
-    if (header[0] !== 67 || header[1] !== 87 || header[2] !== 83) return original;
+    if (header[0] !== 67 || header[1] !== 87 || header[2] !== 83) return null;
     const compressed = new Blob([new Uint8Array(original, 8)]);
     const body = new Uint8Array(await new Response(
       compressed.stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
-    if (body.length + 8 !== new DataView(original).getUint32(4, true)) return original;
+    if (body.length + 8 !== new DataView(original).getUint32(4, true)) return null;
 
     const movie = new DataView(body.buffer), contexts = {};
     const pieces = [header];
+    const decoded = new Map(), exports = new Map();
+    const names = new TextDecoder();
     let at = Math.ceil((5 + 4 * (body[0] >> 3)) / 8) + 4;
-    let previous = 0, count = 0;
+    let previous = 0;
     while (at + 2 <= body.length) {
       const start = at;
       const tag = movie.getUint16(at, true);
@@ -96,19 +163,31 @@
         at += 4;
       }
       const end = at + size;
-      if (end > body.length) return original;
+      if (end > body.length) return null;
       if (code === defineSoundTag && size > 9 && combatSounds.has(movie.getUint16(at, true))) {
-        const pcm = await decodeSound(new DataView(body.buffer, at, size), contexts);
-        if (pcm) {
+        const clip = await decodeSound(new DataView(body.buffer, at, size), contexts);
+        if (clip) {
+          const {pcm, ...audio} = clip;
+          decoded.set(movie.getUint16(at, true), audio);
           pieces.push(body.subarray(previous, start), pcm);
           previous = end;
-          count++;
+        }
+      }
+      if (code === 56 && size >= 2) { // ExportAssets maps ActionScript linkages to sound IDs.
+        const count = movie.getUint16(at, true);
+        for (let i = 0, cursor = at + 2; i < count; i++) {
+          if (cursor + 2 > end) return null;
+          const id = movie.getUint16(cursor, true);
+          const nameEnd = body.indexOf(0, cursor + 2);
+          if (nameEnd < 0 || nameEnd >= end) return null;
+          if (combatSounds.has(id)) exports.set(id, names.decode(body.subarray(cursor + 2, nameEnd)));
+          cursor = nameEnd + 1;
         }
       }
       if (code === 0) break;
       at = end;
     }
-    if (!count) return original;
+    if (!decoded.size) return null;
     pieces.push(body.subarray(previous));
     const result = new Uint8Array(pieces.reduce((size, piece) => size + piece.length, 0));
     let position = 0;
@@ -118,8 +197,14 @@
     }
     result[0] = 70; // FWS, with an uncompressed body.
     new DataView(result.buffer).setUint32(4, result.length, true);
-    window.tls2PreparedCombatSounds = count;
-    return result;
+    const clips = new Map();
+    for (const [id, clip] of decoded) {
+      // The working saw is looped and explicitly stopped by Flash.
+      const name = exports.get(id);
+      if (name && name !== 'sound_chainsawWorking') clips.set(name.toLowerCase(), clip);
+    }
+    window.tls2PreparedCombatSounds = decoded.size;
+    return {movie:result, clips};
   }
 
   window.tls2PrepareCombatAudio = path => {
@@ -138,8 +223,12 @@
       const original = await response.arrayBuffer();
       let prepared = original;
       try {
-        prepared = await prepareMovie(original);
-        if (prepared !== original) installPeakLimiter();
+        const result = await prepareMovie(original);
+        if (result) {
+          prepared = result.movie;
+          installPeakLimiter();
+          installTimedSounds(result.clips);
+        }
       }
       catch (error) { console.warn('Combat audio preparation failed', error); }
       const headers = new Headers(response.headers);

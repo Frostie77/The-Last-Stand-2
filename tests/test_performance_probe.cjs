@@ -47,6 +47,7 @@ class BufferSource extends AudioSource {}
 context.AudioBufferSourceNode=BufferSource;
 context.document.querySelector=()=>({tls2GameInputState:()=> 'M249|80'});
 context.tls2PreparedCombatSounds=21;
+context.tls2TimedCombatSounds=8;
 context.tls2MenuPaused=true;
 assert.throws(()=>vm.runInContext(audioScript,context),/close FrostFrontend/);
 context.tls2MenuPaused=false;
@@ -59,6 +60,7 @@ assert.equal(source.start(1.01),'started');
 source.context.currentTime=1.04;source.start(1.06);
 source.context.currentTime=1.13;source.start(1.13);
 source.start(1.14,0); // A sound scheduled with an offset is outside the mix probe.
+context.tls2TimedCombatSounds+=2;
 source.context.currentTime=1.20;
 const audio=context.__tls2AudioCapture.finish();
 assert.deepEqual(deliveries,[[1.01],[1.06],[1.13],[1.14,0]]);
@@ -67,6 +69,7 @@ assert.equal(audio.sampledValues,24);assert.equal(audio.peak,1.25);
 assert.equal(audio.aboveFullScale,6);assert.equal(audio.scheduledGaps,1);
 assert.equal(audio.maxGapMs,20);assert.equal(audio.tailGapMs,20);
 assert.equal(audio.before.weapon,'M249');assert.equal(audio.preparedCombatSounds,21);
+assert.equal(audio.timedCombatSounds,2);
 assert.equal(BufferSource.prototype.start,AudioSource.prototype.start);
 assert.equal(Object.hasOwn(BufferSource.prototype,'start'),false);
 assert.equal(context.__tls2AudioCapture,undefined);
