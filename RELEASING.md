@@ -1,6 +1,8 @@
 # The Last Stand 2 Android release preparation
 
-The first public release is **v0.1.0**, Android version code **2**, package `io.github.frostie77.laststand2`. The stable feed starts empty. Use a clean checkout and the Windows prerequisites in [BUILDING.md](BUILDING.md).
+The first public release is **v0.1.0**, Android version code **2**, package `io.github.frostie77.laststand2`. Its signed APK is published and listed in the [stable update feed](updates/android-stable.json). [GitHub release](https://github.com/Frostie77/The-Last-Stand-2/releases/tag/v0.1.0)
+
+Use a clean checkout and the Windows prerequisites in [BUILDING.md](BUILDING.md).
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build-public-release.ps1

@@ -39,7 +39,7 @@ Open **Touch Settings → Edit Touch Layout** to move the pad and each button. *
 
 FrostFrontend includes Original (800×420) or Stretch to Screen display, a stereo speaker test, controller mapping, touch settings and update checks. **Graphics → Render Resolution** defaults to **800×420** to reduce rendering load during crowded fights; **1600×840** and **Device** are available. Resolution changes apply without restarting the game. **Antialiasing** defaults to **Off** for lower rendering cost; **2×** and **4×** are available and apply on the next app launch. Game execution and sound pause when settings are open or the app is in the background.
 
-The first public Android release, **v0.1.0**, is in preparation. APK downloads will appear on [GitHub Releases](https://github.com/Frostie77/The-Last-Stand-2/releases). The app package is `io.github.frostie77.laststand2`.
+The first public Android release is **v0.1.0**. The app package is `io.github.frostie77.laststand2`. [Download the APK](https://github.com/Frostie77/The-Last-Stand-2/releases/tag/v0.1.0)
 
 See [build instructions](BUILDING.md), [release preparation](RELEASING.md), and [testing notes](TESTING.md).
 

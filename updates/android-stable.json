@@ -2,5 +2,16 @@
   "schema_version": 1,
   "channel": "stable",
   "package": "io.github.frostie77.laststand2",
-  "latest": null
+  "latest": {
+    "package": "io.github.frostie77.laststand2",
+    "version_name": "0.1.0",
+    "version_code": 2,
+    "release_tag": "v0.1.0",
+    "source_commit": "c99f7d637c33e5382665a0e148ec33745e5ba79d",
+    "certificate_sha256": "7a29da14990d3a32252237b4d824478dcd9a23b9143196684174581d75e5c1fc",
+    "min_sdk": 26,
+    "apk_asset": "The-Last-Stand-2-v0.1.0-Android.apk",
+    "apk_size": 30360286,
+    "apk_sha256": "76054950e73c30d996896682c20abc632e8ad6d03b511cf0e07c2e4f713f43c8"
+  }
 }
