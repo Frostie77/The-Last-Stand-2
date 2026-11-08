@@ -4,17 +4,19 @@ An Android port of **The Last Stand 2**, powered by [Ruffle](https://ruffle.rs/)
 
 This is an unofficial fan project. The original game and its assets belong to their respective creators. The SWF is not included in this repository or the APK.
 
-## Game file
+## Download and install
 
-Download [the original SWF hosted by Not Doppler](https://i.notdoppler.com/files/thelaststand2.swf), then select it in the app on first launch. [Not Doppler's game page](https://www.notdoppler.com/thelaststand2.php) credits Con Artists Productions and Armor Games and states that the game is used with permission.
+1. Install the **v0.1.0** Android APK. [GitHub release](https://github.com/Frostie77/The-Last-Stand-2/releases/tag/v0.1.0)
+2. Download `thelaststand2.swf` from Not Doppler. [Original SWF](https://i.notdoppler.com/files/thelaststand2.swf)
+3. Open the app and select the SWF when prompted.
 
-The verified file is **v1.31**, **8,824,265 bytes**, SHA-256:
+The app package is `io.github.frostie77.laststand2`. The verified SWF is **v1.31** and **8,824,265 bytes**. Its SHA-256 is shown below.
 
 ```text
 db326f3ce2f331d3320cd442c88f17152198a5da4cca3d0fb9c1509afb430ea6
 ```
 
-The Armor Games website-specific copy has a site lock when loaded by this Android wrapper. Use the Not Doppler file linked above. The imported game and saves are stored privately by the app.
+The Armor Games website-specific copy has a site lock when loaded by this Android wrapper. The imported game and saves are stored privately by the app.
 
 ## Controls
 
@@ -39,7 +41,11 @@ Open **Touch Settings → Edit Touch Layout** to move the pad and each button. *
 
 FrostFrontend includes Original (800×420) or Stretch to Screen display, a stereo speaker test, controller mapping, touch settings and update checks. **Graphics → Render Resolution** defaults to **800×420** to reduce rendering load during crowded fights; **1600×840** and **Device** are available. Resolution changes apply without restarting the game. **Antialiasing** defaults to **Off** for lower rendering cost; **2×** and **4×** are available and apply on the next app launch. Game execution and sound pause when settings are open or the app is in the background.
 
-The first public Android release is **v0.1.0**. The app package is `io.github.frostie77.laststand2`. [Download the APK](https://github.com/Frostie77/The-Last-Stand-2/releases/tag/v0.1.0)
+Use **Updates → Check for Updates** in FrostFrontend to check for a newer stable release.
+
+## Tested on the AYN Odin 2 Portal
+
+The full campaign was completed on the Odin 2 Portal using the verified v1.31 SWF. The in-app update check also worked on the signed v0.1.0 APK.
 
 See [build instructions](BUILDING.md), [release preparation](RELEASING.md), and [testing notes](TESTING.md).
 
@@ -47,6 +53,7 @@ See [build instructions](BUILDING.md), [release preparation](RELEASING.md), and 
 
 - **Con Artists Productions / Con Artist Games** — original game and development. [Creator's Newgrounds release](https://www.newgrounds.com/portal/view/439275).
 - **Armor Games** — original publisher/sponsor. [Original game page](https://armorgames.com/play/1443/the-last-stand-2).
+- **Not Doppler** hosts the verified SWF and credits the original creators. [Game page](https://www.notdoppler.com/thelaststand2.php)
 - **Evil Lives** — music, credited in the original game.
 - **Ruffle contributors** — Flash emulation; Apache-2.0 / MIT.
 - **Frostie77** — Android integration, controls and FrostFrontend.
