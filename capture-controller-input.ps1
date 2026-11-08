@@ -252,7 +252,7 @@ try {
         return
     }
     if ($Audio) {
-        $probe = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'toolsaudio-probe.js') -Raw
+        $probe = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'tools/audio-probe.js') -Raw
         Invoke-Tls2Evaluation $probe | Out-Null
         Write-Host "Capturing audio for $CaptureSeconds seconds. Keep shooting with FrostFrontend closed."
         Start-Sleep -Seconds $CaptureSeconds
